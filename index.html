@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folio — PDF editor</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body class="tool-select">
+  <header>
+    <b>Folio</b>
+    <span class="group">
+      <button id="open" title="Open PDF (or drop one anywhere)">Open</button>
+      <button id="merge" title="Append pages from other PDFs">Insert PDF</button>
+      <button id="blank" title="Add a blank page">+ Page</button>
+      <button id="extract" title="Save selected pages as a new PDF">Extract</button>
+      <button id="save" title="Download edited PDF">Save</button>
+    </span>
+    <span class="group" id="tools">
+      <button data-tool="select" class="on">Select</button>
+      <button data-tool="text">Text</button>
+      <button data-tool="whiteout" title="Cover content with white (hides it visually; the text underneath is NOT removed)">Whiteout</button>
+      <button data-tool="highlight">Highlight</button>
+      <button data-tool="draw">Draw</button>
+      <button id="image">Image</button>
+      <button id="sign">Sign</button>
+    </span>
+    <span class="group">
+      <input id="color" type="color" value="#000000" title="Color">
+      <input id="size" type="number" value="14" min="4" max="144" title="Font size" aria-label="Font size">
+    </span>
+    <span class="group">
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </span>
+    <span id="status"></span>
+  </header>
+  <aside id="thumbs"></aside>
+  <main id="viewer"><p class="empty">Open or drop a PDF to start — or click “+ Page” for a blank one.</p></main>
+  <aside id="forms" hidden></aside>
+
+  <input id="file" type="file" accept="application/pdf" hidden>
+  <input id="mergeFile" type="file" accept="application/pdf" multiple hidden>
+  <input id="imageFile" type="file" accept="image/*" hidden>
+
+  <dialog id="sigDlg">
+    <h3>Signature</h3>
+    <canvas id="pad" width="500" height="160"></canvas>
+    <p><button id="padClear">Clear</button> <button id="padUse">Use drawing</button></p>
+    <p><input id="typed" placeholder="…or type your name"> <button id="typedUse">Use typed</button></p>
+    <div id="saved"></div>
+    <p><button id="sigClose">Cancel</button></p>
+  </dialog>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
