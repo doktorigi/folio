@@ -1,0 +1,13 @@
+[package]
+name = "folio"
+version = "0.1.0"
+description = "Lightweight PDF editor and signer"
+license = "MIT"
+repository = "https://github.com/doktorigi/folio"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

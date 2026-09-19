@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "directories": {
     "test": "test"
   },
@@ -10,7 +10,8 @@
     "build": "vite build --base=./",
     "assets": "node -e \"for (const d of ['cmaps','standard_fonts']) require('fs').cpSync('node_modules/pdfjs-dist/'+d, 'public/pdfjs/'+d, {recursive: true})\"",
     "predev": "npm run assets",
-    "prebuild": "npm run assets"
+    "prebuild": "npm run assets",
+    "tauri": "tauri"
   },
   "license": "MIT",
   "description": "Lightweight open-source PDF editor & signer that runs in your browser",
@@ -19,6 +20,7 @@
     "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "vite": "^8.3.0"
   },
   "type": "module"

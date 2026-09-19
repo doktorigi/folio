@@ -8,7 +8,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 const $ = id => document.getElementById(id)
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props)
 // Installed app: register offline cache, and open PDFs sent via "Open with" (manifest file_handlers).
-if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js')
+if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}) // not available in the desktop app
 window.launchQueue?.setConsumer(async ({ files }) => {
   if (!files.length) return
   const f = await files[0].getFile()

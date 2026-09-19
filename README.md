@@ -15,6 +15,10 @@ Built on [pdf.js](https://github.com/mozilla/pdf.js) (rendering) and [pdf-lib](h
 
 ## Install
 
+**Windows app:** download `Folio_x.y.z_x64-setup.exe` from [Releases](https://github.com/doktorigi/folio/releases/latest) and run it. It doesn't need admin rights and adds a Start menu entry. The installer isn't code-signed yet, so SmartScreen may warn you: click *More info → Run anyway*.
+
+**Or install it from your browser (any OS):**
+
 1. Open **https://doktorigi.github.io/folio/** in Chrome or Edge.
 2. Click the install icon in the address bar, or go to menu → *Install Folio*.
 
@@ -30,7 +34,11 @@ npm install
 npm run dev      # http://localhost:5173
 npm run build    # static site in dist/, host anywhere (GitHub Pages, etc.)
 npm test
+npm run tauri dev     # desktop app (needs Rust)
+npm run tauri build   # Windows installers in src-tauri/target/release/bundle/
 ```
+
+Pushing a `v*` tag builds the Windows installers in CI and attaches them to a GitHub Release.
 
 ## Limitations (PRs welcome)
 

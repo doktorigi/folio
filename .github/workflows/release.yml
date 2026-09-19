@@ -1,0 +1,32 @@
+name: Release desktop app
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm test
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Folio ${{ github.ref_name }}
+          releaseBody: |
+            **Windows:** download `Folio_*_x64-setup.exe` and run it. No admin rights needed. The `.msi` is for managed or IT deployments.
+            The installer isn't code-signed yet, so SmartScreen may warn you. Click *More info → Run anyway*.
+            Or skip installing and use the web app: https://doktorigi.github.io/folio/
+          releaseDraft: false
