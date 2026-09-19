@@ -40,6 +40,10 @@ npm run tauri build   # Windows installers in src-tauri/target/release/bundle/
 
 Pushing a `v*` tag builds the Windows installers in CI and attaches them to a GitHub Release.
 
+## Contributing
+
+Want to help? See the [Roadmap](https://github.com/doktorigi/folio/issues?q=is%3Aissue+label%3Aroadmap) for the feature list ([good first issues](https://github.com/doktorigi/folio/labels/good%20first%20issue) are a great start) and [CONTRIBUTING.md](CONTRIBUTING.md) for setup and a code tour.
+
 ## Limitations (PRs welcome)
 
 - **Whiteout is not redaction.** It covers content but the text underneath is still in the file.
