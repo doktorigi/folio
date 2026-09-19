@@ -1,0 +1,38 @@
+name: Bug report
+description: Something doesn't work or a PDF comes out wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting! **Please don't attach PDFs that contain personal or confidential information.**"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: "1. Opened a 3-page PDF\n2. Added a signature on page 2\n3. Saved → the signature is on page 1"
+    validations:
+      required: true
+  - type: dropdown
+    id: app
+    attributes:
+      label: Which version of Folio?
+      options:
+        - Web app (doktorigi.github.io/folio)
+        - Installed web app
+        - Windows desktop app (.exe/.msi)
+        - Running from source
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Browser / OS and Folio version
+      placeholder: "Chrome 140 on Windows 11, Folio 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, console errors, or a sample PDF
+      description: A safe sample PDF that shows the problem helps a lot. Press F12 to see console errors.

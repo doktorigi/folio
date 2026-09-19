@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Roadmap / feature list
+    url: https://github.com/doktorigi/folio/issues?q=is%3Aissue+label%3Aroadmap
+    about: See what's planned and pick something to work on.
+  - name: Contributing guide
+    url: https://github.com/doktorigi/folio/blob/main/CONTRIBUTING.md
+    about: Setup, a code tour, and project guidelines.

@@ -2,7 +2,7 @@
 
 Thanks for helping! The feature list is the [Roadmap issue](https://github.com/doktorigi/folio/issues?q=is%3Aissue+label%3Aroadmap). If you're new, pick one labeled [`good first issue`](https://github.com/doktorigi/folio/labels/good%20first%20issue).
 
-Comment on an issue before starting so two people don't build the same thing.
+Comment on an issue before starting so two people don't build the same thing. By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Setup
 

@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest something Folio should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: "Please check the [Roadmap](https://github.com/doktorigi/folio/issues?q=is%3Aissue+label%3Aroadmap) first. It may already be planned, and a 👍 there helps us prioritize."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task or problem, not just the feature.
+      placeholder: "I sign the same contract every month and have to initial every page…"
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could Folio help?
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to build this myself
