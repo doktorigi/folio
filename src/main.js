@@ -1,14 +1,15 @@
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { PDFDocument, degrees, PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList, PDFRadioGroup } from 'pdf-lib'
-import { bake, viewBox } from './bake.js'
+import { PDFDocument, StandardFonts, degrees, PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList, PDFRadioGroup } from 'pdf-lib'
+import { bake, viewBox, addTextLayer, FONTS } from './bake.js'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 const $ = id => document.getElementById(id)
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props)
-// Installed app: register offline cache, and open PDFs sent via "Open with" (manifest file_handlers).
-if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}) // not available in the desktop app
+// Installed web app: register offline cache, and open PDFs sent via "Open with" (manifest file_handlers).
+// Not in the desktop app: its files are already local, and WebView2 can't update a service worker there.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !window.__TAURI_INTERNALS__) navigator.serviceWorker.register('sw.js')
 window.launchQueue?.setConsumer(async ({ files }) => {
   if (!files.length) return
   const f = await files[0].getFile()
@@ -27,6 +28,7 @@ async function open(bytes, fileName) {
   if (d.isEncrypted) return alert('Password-protected PDFs are not supported yet.')
   doc = d
   name = fileName
+  status('')
   pages = doc.getPages().map(() => ({ items: [] }))
   picked.clear()
   await refresh()
@@ -51,6 +53,7 @@ async function paint(canvas, i, cssWidth) {
   const viewport = page.getViewport({ scale: (cssWidth / base.width) * devicePixelRatio })
   Object.assign(canvas, { width: viewport.width, height: viewport.height })
   await page.render({ canvas, viewport }).promise
+  canvas.dataset.painted = 1
 }
 
 function build() {
@@ -247,10 +250,13 @@ function drawItem(i, it) {
     node.innerHTML = `<svg viewBox="0 0 ${it.ow} ${it.oh}" preserveAspectRatio="none" style="overflow:visible"><polyline points="${pts}" fill="none" stroke="${it.color}" stroke-width="${it.width * zoom}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`
   } else if (it.type === 'text') {
     const span = el('span', { contentEditable: 'plaintext-only', innerText: it.text })
+    const f = FONTS[it.font ?? StandardFonts.Helvetica]
     span.style.fontSize = it.size * zoom + 'px'
+    span.style.fontFamily = f.css
+    span.style.fontWeight = f.bold ? 'bold' : ''
     span.style.color = it.color
     span.oninput = () => (it.text = span.innerText)
-    span.onfocus = () => select({ i, it, node })
+    span.onfocus = () => { select({ i, it, node }); $('font').value = it.font ?? StandardFonts.Helvetica; $('size').value = it.size; $('color').value = it.color }
     span.onblur = () => !it.text.trim() && remove(i, it)
     node.append(span)
   }
@@ -276,8 +282,11 @@ function startTool(e, i, layer) {
   const x = (e.clientX - r.left) / zoom, y = (e.clientY - r.top) / zoom
   const color = $('color').value, add = it => (pages[i].items.push(it), drawItem(i, it))
 
-  if (tool === 'text') {
-    const it = { type: 'text', x, y, size: +$('size').value || 14, color, text: '' }
+  if (tool === 'edit') {
+    e.preventDefault()
+    editTextAt(i, x, y)
+  } else if (tool === 'text') {
+    const it = { type: 'text', x, y, size: +$('size').value || 14, color, text: '', font: $('font').value }
     e.preventDefault()
     add(it).querySelector('span').focus()
   } else if (tool === 'whiteout' || tool === 'highlight') {
@@ -310,11 +319,118 @@ function startTool(e, i, layer) {
   }
 }
 
+// ---------- edit existing text ----------
+// Groups pdf.js text fragments into lines (view units, y = baseline). ponytail: horizontal left-to-right text only.
+async function textLines(i) {
+  const page = await pdf.getPage(i + 1), vp = page.getViewport({ scale: 1 })
+  const { items, styles } = await page.getTextContent()
+  const lines = []
+  for (const t of items) {
+    if (!t.str) continue
+    const [a, b, c, d, e, f] = t.transform, n = Math.hypot(a, b), size = Math.hypot(c, d)
+    const [x0, y] = vp.convertToViewportPoint(e, f)
+    const [x1, y1] = vp.convertToViewportPoint(e + (a / n) * t.width, f + (b / n) * t.width)
+    if (Math.abs(y1 - y) > 1 || x1 < x0) continue
+    const prev = lines.at(-1)
+    if (prev && Math.abs(prev.y - y) < size * 0.2 && Math.abs(prev.size - size) < 1 && x0 > prev.x1 - 1 && x0 - prev.x1 < size) {
+      const gap = x0 - prev.x1 > size * 0.15 && !/\s$/.test(prev.text) && !/^\s/.test(t.str)
+      prev.text += (gap ? ' ' : '') + t.str
+      prev.x1 = x1
+    } else lines.push({ text: t.str, x0, x1, y, size, fontName: t.fontName, family: styles[t.fontName]?.fontFamily })
+  }
+  return { page, lines: lines.filter(l => l.text.trim()) }
+}
+
+// Closest standard font to the one used in the PDF.
+function matchFont(page, line) {
+  const f = page.commonObjs.has(line.fontName) ? page.commonObjs.get(line.fontName) : {}
+  const name = f.name ?? '', bold = f.bold || /bold|black|heavy/i.test(name)
+  if (/courier|mono|consol/i.test(name) || line.family === 'monospace') return bold ? StandardFonts.CourierBold : StandardFonts.Courier
+  if (/times|georgia|garamond|cambria|minion|palatino/i.test(name) || line.family === 'serif') return bold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman
+  return bold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica
+}
+
+// Background = lightest pixel in the box, ink = darkest, read from the rendered page.
+// ponytail: assumes dark text on a lighter background.
+function sampleColors(i, x, y, w, h) {
+  const c = $('viewer').children[i].querySelector('canvas')
+  if (!c.dataset.painted) return { bg: '#ffffff', fg: '#000000' }
+  const k = c.width / viewBox(doc.getPage(i)).w
+  const d = c.getContext('2d', { willReadFrequently: true }).getImageData(x * k, y * k, Math.max(1, w * k), Math.max(1, h * k)).data
+  let lo = [0, 0, 0], hi = [255, 255, 255], min = Infinity, max = -1
+  for (let p = 0; p < d.length; p += 4) {
+    const px = [d[p], d[p + 1], d[p + 2]], L = px[0] * 0.3 + px[1] * 0.59 + px[2] * 0.11
+    if (L < min) { min = L; lo = px }
+    if (L > max) { max = L; hi = px }
+  }
+  const hex = px => '#' + px.map(v => v.toString(16).padStart(2, '0')).join('')
+  return { bg: hex(hi), fg: hex(lo) }
+}
+
+async function editTextAt(i, x, y) {
+  const { page, lines } = await textLines(i)
+  const l = lines.find(l => x >= l.x0 - 2 && x <= l.x1 + 2 && y >= l.y - l.size && y <= l.y + l.size * 0.3)
+  if (!l) return status('No text there. If this is a scanned page, run OCR first.')
+  const font = matchFont(page, l), top = l.y - l.size * 1.05, h = l.size * 1.35
+  const { bg, fg } = sampleColors(i, l.x0, top, l.x1 - l.x0, h)
+  const cover = { type: 'rect', x: l.x0 - 1, y: top, w: l.x1 - l.x0 + 2, h, color: bg, opacity: 1 }
+  const text = { type: 'text', x: l.x0, y: l.y - FONTS[font].base * l.size, size: Math.round(l.size * 10) / 10, color: fg, text: l.text.trim(), font }
+  pages[i].items.push(cover, text)
+  drawItem(i, cover)
+  const span = drawItem(i, text).querySelector('span')
+  span.focus()
+  getSelection().selectAllChildren(span)
+  getSelection().collapseToEnd()
+  status('Editing text. Click elsewhere when done.')
+}
+
+// ---------- OCR ----------
+// Runs Tesseract locally on pages that have no text and writes an invisible text layer into the PDF.
+async function ocr() {
+  if (!doc) return
+  const todo = []
+  for (let i = 0; i < pages.length; i++) if (!(await textLines(i)).lines.length) todo.push(i)
+  if (!todo.length) return status('Every page already has text. OCR is only needed for scans.')
+  $('ocr').disabled = true
+  status('Loading OCR engine\u2026')
+  let n = 0, worker
+  try {
+    const { createWorker } = await import('tesseract.js')
+    const base = new URL(import.meta.env.BASE_URL + 'tesseract/', location.href).href
+    worker = await createWorker('eng', 1, {
+      workerPath: base + 'worker.min.js', corePath: base + 'core/', langPath: base + 'lang/',
+      logger: m => m.status === 'recognizing text' && status(`OCR page ${n}/${todo.length}: ${Math.round(m.progress * 100)}%`),
+    })
+    const S = 2.5 // ~180 dpi, a good speed/accuracy trade-off
+    for (const i of todo) {
+      n++
+      const page = await pdf.getPage(i + 1), viewport = page.getViewport({ scale: S })
+      const canvas = el('canvas', { width: viewport.width, height: viewport.height })
+      await page.render({ canvas, viewport }).promise
+      const { data } = await worker.recognize(canvas, {}, { blocks: true })
+      const lines = (data.blocks ?? []).flatMap(b => b.paragraphs).flatMap(p => p.lines).map(l => ({
+        text: l.text,
+        x: l.bbox.x0 / S,
+        w: (l.bbox.x1 - l.bbox.x0) / S,
+        y: (l.baseline?.has_baseline ? l.baseline.y0 : l.bbox.y1) / S,
+        size: ((l.rowAttributes?.rowHeight ?? l.bbox.y1 - l.bbox.y0) * 1.1) / S, // rowHeight is ~0.9em
+      }))
+      await addTextLayer(doc, i, lines)
+    }
+  } finally {
+    await worker?.terminate()
+    $('ocr').disabled = false
+  }
+  await refresh(false)
+  status(`OCR done on ${todo.length} page(s). Text is now searchable, selectable and editable with Edit text.`)
+}
+$('ocr').onclick = ocr
+
 function setTool(t) {
   tool = t
   document.body.className = 'tool-' + t
   document.querySelectorAll('#tools [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t))
-  status(t === 'stamp' ? 'Click on a page to place it (Esc to cancel)' : '')
+  status({ stamp: 'Click on a page to place it (Esc to cancel)', edit: 'Click a line of text to edit it' }[t] ?? '')
 }
 document.querySelectorAll('#tools [data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool)))
 
@@ -323,6 +439,8 @@ const useStamp = (src, width) => { stamp = { src, width }; setTool('stamp'); $('
 // Color / size apply to new items and to the selected one.
 $('color').oninput = () => { if (sel?.it.type === 'text' || sel?.it.type === 'ink') { sel.it.color = $('color').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
 $('size').onchange = () => { if (sel?.it.type === 'text') { sel.it.size = +$('size').value || 14; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
+$('font').onchange = () => { if (sel?.it.type === 'text') { sel.it.font = $('font').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
+$('font').replaceChildren(...Object.entries({ Sans: 'Helvetica', 'Sans bold': 'HelveticaBold', Serif: 'TimesRoman', 'Serif bold': 'TimesRomanBold', Mono: 'Courier', 'Mono bold': 'CourierBold' }).map(([label, k]) => el('option', { value: StandardFonts[k], textContent: label })))
 
 addEventListener('keydown', e => {
   if (e.key === 'Escape') { select(null); setTool('select') }

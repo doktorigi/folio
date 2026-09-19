@@ -7,7 +7,9 @@ Built on [pdf.js](https://github.com/mozilla/pdf.js) (rendering) and [pdf-lib](h
 ## Features
 
 - **View**: open or drag-and-drop a PDF, zoom, see page thumbnails
-- **Edit content**: add text (with color and size), whiteout, highlight, freehand drawing, and images. Move and resize any of these, and press Delete to remove one.
+- **Edit existing text**: click any line to change it. Folio matches the font style, size and colors, and covers the original with the page's own background color.
+- **OCR**: recognizes text in scanned pages, so they become searchable, selectable and editable. It runs on your device, and pages are never uploaded.
+- **Add content**: text (font, size, color), whiteout, highlight, freehand drawing, and images. Move and resize any of these, and press Delete to remove one.
 - **Sign**: draw or type a signature and place it anywhere. The last 5 signatures are remembered locally.
 - **Forms**: fill text fields, checkboxes, dropdowns, and radio groups
 - **Pages**: rotate, delete, drag to reorder, add blank pages, insert/merge other PDFs, and extract picked pages (Ctrl+click thumbnails) into a new PDF
@@ -47,9 +49,10 @@ Want to help? See the [Roadmap](https://github.com/doktorigi/folio/issues?q=is%3
 ## Limitations (PRs welcome)
 
 - **Whiteout is not redaction.** It covers content but the text underneath is still in the file.
-- You can't edit existing text in place. Use whiteout and then add new text.
+- Editing text covers the old line and writes the new one on top, so the original text is still in the file (like whiteout). Edits use the closest standard font (sans, serif or mono), not the exact original font.
+- OCR recognizes English only so far.
 - Signatures are images, not certificate-based (PKI) digital signatures.
-- Added text uses Helvetica, which only covers Latin characters. Other characters are saved as `?`.
+- Added and edited text only supports Latin characters. Other characters are saved as `?`.
 - No undo. Password-protected PDFs aren't supported.
 - Rotating a page burns in the edits on that page, so they can no longer be moved or deleted.
 

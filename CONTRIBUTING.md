@@ -20,10 +20,11 @@ It's small on purpose, so read it all. It takes about 15 minutes.
 
 | File | What it does |
 |---|---|
-| `src/main.js` | The whole UI: loading/rendering (pdf.js), page ops, forms, overlay items, signatures |
+| `src/main.js` | The whole UI: loading/rendering (pdf.js), page ops, forms, overlay items, signatures, edit text, OCR (tesseract.js) |
 | `src/bake.js` | Burns overlay items into the PDF on save (pdf-lib). Runs in Node too. |
 | `test/bake.test.mjs` | Checks edits land where the user put them, on pages at every rotation |
 | `public/sw.js`, `public/manifest.webmanifest` | Installable web app (PWA) |
+| `scripts/copy-assets.mjs` | Copies pdf.js fonts and the OCR engine and data into `public/` so nothing loads from a CDN |
 | `src-tauri/` | Windows desktop wrapper |
 
 **The model:** `doc` (a pdf-lib `PDFDocument`) is the source of truth for pages. Things the user adds (text, images, drawings, rectangles) are plain objects in `pages[i].items`. Their coordinates are in *view units*: the page as displayed, with rotation applied, at zoom 1, y pointing down. They stay editable until **Save**, when `bake()` writes them into the PDF.

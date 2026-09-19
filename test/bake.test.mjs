@@ -2,8 +2,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument, degrees } from 'pdf-lib'
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { bake, viewBox } from '../src/bake.js'
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { bake, viewBox, addTextLayer, FONTS } from '../src/bake.js'
 
 test('overlay lands at the same view position for every rotation', async () => {
   const src = await PDFDocument.create()
@@ -36,4 +36,35 @@ test('pages can be moved within a document', async () => {
   doc.insertPage(2, p)
   const again = await PDFDocument.load(await doc.save())
   assert.deepEqual(again.getPages().map(p => p.getWidth()), [200, 300, 100])
+})
+
+test('each font puts its baseline where the on-screen editor does', async () => {
+  const src = await PDFDocument.create()
+  src.addPage([400, 400])
+  const names = Object.keys(FONTS)
+  const items = names.map((font, k) => ({ type: 'text', x: 20, y: 20 + k * 40, size: 20, color: '#000000', text: 'Ag', font }))
+  const pdf = await getDocument({ data: await bake(await src.save(), [{ items }]) }).promise
+  const page = await pdf.getPage(1), vp = page.getViewport({ scale: 1 })
+  const got = (await page.getTextContent()).items.filter(t => t.str).map(t => vp.convertToViewportPoint(t.transform[4], t.transform[5])[1])
+  assert.deepEqual(got.map(Math.round), names.map((n, k) => Math.round(20 + k * 40 + FONTS[n].base * 20)))
+})
+
+test('OCR text layer is invisible, positioned and sized to the scanned line', async () => {
+  const doc = await PDFDocument.create()
+  for (const r of [0, 90]) doc.addPage([300, 500]).setRotation(degrees(r))
+  for (const i of [0, 1]) await addTextLayer(doc, i, [{ text: 'Scanned line', x: 30, y: 80, size: 12, w: 150 }])
+  const pdf = await getDocument({ data: await doc.save() }).promise
+  for (const i of [1, 2]) {
+    const page = await pdf.getPage(i), vp = page.getViewport({ scale: 1 })
+    const items = (await page.getTextContent()).items.filter(t => t.str) // pdf.js may split at spaces
+    assert.equal(items.map(t => t.str).join(''), 'Scanned line')
+    const [first, last] = [items[0], items.at(-1)], [a, b] = last.transform, n = Math.hypot(a, b)
+    const [x0, y0] = vp.convertToViewportPoint(first.transform[4], first.transform[5])
+    const [x1, y1] = vp.convertToViewportPoint(last.transform[4] + (a / n) * last.width, last.transform[5] + (b / n) * last.width)
+    assert.ok(Math.abs(x0 - 30) < 0.5 && Math.abs(y0 - 80) < 0.5, `page ${i}: starts at ${x0},${y0}`)
+    assert.ok(Math.abs(x1 - 180) < 1 && Math.abs(y1 - 80) < 0.5, `page ${i}: ends at ${x1},${y1}`)
+    const ops = await page.getOperatorList()
+    const k = ops.fnArray.indexOf(OPS.setTextRenderingMode)
+    assert.equal(ops.argsArray[k][0], 3) // invisible
+  }
 })
