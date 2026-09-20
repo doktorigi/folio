@@ -68,3 +68,24 @@ test('OCR text layer is invisible, positioned and sized to the scanned line', as
     assert.equal(ops.argsArray[k][0], 3) // invisible
   }
 })
+
+test('a note bakes into a real sticky-note annotation at the right spot on every rotation', async () => {
+  const src = await PDFDocument.create()
+  for (const r of [0, 90, 180, 270]) {
+    const p = src.addPage([300, 500])
+    p.setCropBox(10, 20, 280, 460)
+    p.setRotation(degrees(r))
+  }
+  const items = [{ type: 'note', x: 40, y: 60, w: 22, h: 22, text: 'Check this figure' }]
+  const pdf = await getDocument({ data: await bake(await src.save(), [0, 1, 2, 3].map(() => ({ items }))) }).promise
+  for (let i = 0; i < 4; i++) {
+    const page = await pdf.getPage(i + 1), vp = page.getViewport({ scale: 1 })
+    const [a] = await page.getAnnotations()
+    assert.equal(a.subtype, 'Text')
+    assert.equal(a.contentsObj.str, 'Check this figure')
+    // rect is [x0, y0, x1, y1] in user space: its top-left in view units must be where we put it
+    const corners = [vp.convertToViewportPoint(a.rect[0], a.rect[1]), vp.convertToViewportPoint(a.rect[2], a.rect[3])]
+    const [x, y] = [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1])]
+    assert.ok(Math.abs(x - 40) < 0.5 && Math.abs(y - 60) < 0.5, `page ${i}: note at ${x},${y}`)
+  }
+})

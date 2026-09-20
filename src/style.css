@@ -6,6 +6,8 @@ button { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; backgrou
 button:hover { background: #eee; }
 button.on { background: #2563eb; color: #fff; border-color: #2563eb; }
 #size { width: 56px; }
+#q { width: 140px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+#hitCount { color: #666; font-size: 12px; min-width: 4ch; }
 #status { color: #666; }
 
 #thumbs { overflow: auto; background: #e9e9ec; padding: 8px; }
@@ -29,9 +31,21 @@ body.tool-text .layer { cursor: text; }
 .handle { position: absolute; right: -6px; bottom: -6px; width: 10px; height: 10px; background: #2563eb; cursor: nwse-resize; display: none; }
 .item.sel .handle { display: block; }
 
-#forms { width: 240px; overflow: auto; padding: 12px; border-left: 1px solid #ddd; }
+#side { width: 240px; overflow: auto; padding: 12px; border-left: 1px solid #ddd; }
 #forms label { display: block; margin-bottom: 10px; font-size: 12px; overflow-wrap: anywhere; }
 #forms input:not([type=checkbox]), #forms select { display: block; width: 100%; margin-top: 2px; }
 
 #pad { border: 1px solid #ccc; touch-action: none; max-width: 100%; }
 #saved img { height: 50px; border: 1px solid #ccc; margin: 4px; cursor: pointer; }
+
+.item.note { background: #ffd54f; border: 1px solid #b8860b; border-radius: 3px 3px 3px 0; }
+.item.note::after { content: "💬"; font-size: 12px; line-height: 1; }
+.item.redact { outline: 1px dashed #e11; }
+
+.hit { position: absolute; background: #ffeb3b80; outline: 1px solid #fbc02d; pointer-events: none; }
+.hit.on { background: #ff980099; outline-color: #e65100; }
+
+.note-row { font-size: 12px; margin-bottom: 8px; padding: 6px; background: #fffbe6; border: 1px solid #f0e0a0; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
+.note-row b { display: block; color: #666; font-weight: normal; }
+.note-row button { float: right; padding: 0 5px; font-size: 11px; }
+#notes h3, #forms h3 { margin: 0 0 8px; font-size: 13px; }

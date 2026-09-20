@@ -19,6 +19,7 @@ addEventListener('unhandledrejection', e => alert(e.reason?.message ?? e.reason)
 
 // doc (pdf-lib) is the source of truth for pages; overlay items live in pages[i].items until Save bakes them in.
 let doc = null, pdf = null, pages = [], zoom = 1.25, tool = 'select', stamp = null, sel = null, name = 'document.pdf'
+let docBytes = null // what pdf was built from; undo steps share it instead of re-saving
 const picked = new Set()
 const status = msg => ($('status').textContent = msg)
 
@@ -31,14 +32,21 @@ async function open(bytes, fileName) {
   status('')
   pages = doc.getPages().map(() => ({ items: [] }))
   picked.clear()
+  undos = []
+  redos = []
+  syncUndo()
   await refresh()
 }
 
 async function refresh(forms = true) {
   const base = import.meta.env.BASE_URL + 'pdfjs/'
-  pdf = await pdfjs.getDocument({ data: await doc.save(), cMapUrl: base + 'cmaps/', standardFontDataUrl: base + 'standard_fonts/' }).promise
+  docBytes = await doc.save()
+  // pdf.js transfers the buffer to its worker, so hand it a copy and keep docBytes for undo steps.
+  pdf = await pdfjs.getDocument({ data: docBytes.slice(), cMapUrl: base + 'cmaps/', standardFontDataUrl: base + 'standard_fonts/' }).promise
+  await loadAnnots()
   build()
   if (forms) buildForms()
+  buildNotes()
 }
 
 const observer = new IntersectionObserver(entries => entries.forEach(e => {
@@ -96,7 +104,37 @@ function build() {
     observer.observe(t)
   })
   $('viewer').scrollTop = top
+  drawHits()
 }
+
+// ---------- undo / redo ----------
+// A step is the doc bytes (shared, not copied) plus a deep copy of the overlay items, so it costs
+// nothing beyond the save refresh() already did. ponytail: typing inside a text item is not stepped,
+// the browser's own undo covers that.
+let undos = [], redos = []
+const snap = () => ({ bytes: docBytes, items: JSON.parse(JSON.stringify(pages)) })
+const syncUndo = () => { $('undo').disabled = !undos.length; $('redo').disabled = !redos.length }
+
+function mark() {
+  if (!doc) return
+  undos.push(snap())
+  if (undos.length > 50) undos.shift()
+  redos = []
+  syncUndo()
+}
+
+async function restore(from, to) {
+  const s = from.pop()
+  if (!s) return
+  to.push(snap())
+  pages = s.items
+  picked.clear()
+  syncUndo()
+  if (s.bytes === docBytes) build()
+  else { doc = await PDFDocument.load(s.bytes); await refresh() }
+}
+$('undo').onclick = () => restore(undos, redos)
+$('redo').onclick = () => restore(redos, undos)
 
 // ---------- page operations ----------
 async function bakeInto(which) {
@@ -107,6 +145,7 @@ async function bakeInto(which) {
 }
 
 async function rotatePage(i) {
+  mark()
   if (pages[i].items.length) await bakeInto([i])
   const p = doc.getPage(i)
   p.setRotation(degrees((p.getRotation().angle + 90) % 360))
@@ -115,6 +154,7 @@ async function rotatePage(i) {
 
 async function deletePage(i) {
   if (pages.length === 1) return alert("Can't delete the only page.")
+  mark()
   doc.removePage(i)
   pages.splice(i, 1)
   picked.clear()
@@ -123,6 +163,7 @@ async function deletePage(i) {
 
 async function movePage(from, to) {
   if (from === to) return
+  mark()
   const p = doc.getPage(from)
   doc.removePage(from)
   doc.insertPage(to, p)
@@ -132,6 +173,7 @@ async function movePage(from, to) {
 }
 
 async function insertPdfs(files) {
+  if (doc) mark()
   for (const f of files) {
     const other = await PDFDocument.load(await f.arrayBuffer())
     if (!doc) { await open(await f.arrayBuffer(), f.name); continue }
@@ -154,17 +196,22 @@ $('file').onchange = async e => { const f = e.target.files[0]; e.target.value = 
 $('merge').onclick = () => $('mergeFile').click()
 $('mergeFile').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await insertPdfs(fs) }
 $('blank').onclick = async () => {
-  if (!doc) { doc = await PDFDocument.create(); pages = [] }
+  if (!doc) { doc = await PDFDocument.create(); pages = [] } else mark()
   const last = doc.getPageCount() && doc.getPage(doc.getPageCount() - 1)
   doc.addPage(last ? [last.getWidth(), last.getHeight()] : [612, 792])
   pages.push({ items: [] })
   await refresh()
   $('viewer').lastChild.scrollIntoView()
 }
-$('save').onclick = async () => doc && download(await bake(await doc.save(), pages), name)
+$('save').onclick = async () => {
+  if (!doc) return
+  if (await applyRedactions()) status('Redacted content removed from the saved file.')
+  download(await bake(await doc.save(), pages), name)
+}
 $('extract').onclick = async () => {
   if (!doc) return
   if (!picked.size) return alert('Ctrl+click page thumbnails to pick the pages to extract.')
+  await applyRedactions()
   const src = await PDFDocument.load(await bake(await doc.save(), pages))
   const out = await PDFDocument.create()
   for (const p of await out.copyPages(src, [...picked].sort((a, b) => a - b))) out.addPage(p)
@@ -184,7 +231,7 @@ function buildForms() {
   box.replaceChildren(el('h3', { textContent: 'Form fields' }))
   let fields = []
   try { fields = doc.getForm().getFields() } catch { /* malformed AcroForm: just show no fields */ }
-  const commit = fn => async () => { fn(); await refresh(false) }
+  const commit = fn => async () => { mark(); fn(); await refresh(false) }
   for (const f of fields) {
     let input
     if (f instanceof PDFTextField) {
@@ -204,8 +251,11 @@ function buildForms() {
     label.append(input)
     box.append(label)
   }
-  box.hidden = box.children.length === 1
+  if (box.children.length === 1) box.replaceChildren() // heading only: no fields to show
+  showSide()
 }
+
+const showSide = () => ($('side').hidden = $('notes').children.length + $('forms').children.length <= 1)
 
 // ---------- overlay items ----------
 function place(node, it) {
@@ -234,15 +284,28 @@ function remove(i, it) {
   pages[i].items = pages[i].items.filter(x => x !== it)
   if (sel?.it === it) sel = null
   it.node?.remove()
+  if (it.type === 'note') buildNotes()
 }
 
 function drawItem(i, it) {
   const node = el('div', { className: 'item' })
   it.node?.remove()
   Object.defineProperty(it, 'node', { value: node, configurable: true, enumerable: false })
-  if (it.type === 'rect') {
+  if (it.type === 'rect' || it.type === 'redact') {
     node.style.background = it.color
     node.style.opacity = it.opacity
+    if (it.type === 'redact') node.classList.add('redact')
+  } else if (it.type === 'note') {
+    node.classList.add('note')
+    node.title = it.text
+    node.ondblclick = () => {
+      const t = prompt('Comment:', it.text)
+      if (t === null) return
+      mark()
+      it.text = t.trim()
+      node.title = it.text
+      buildNotes()
+    }
   } else if (it.type === 'image') {
     node.append(el('img', { src: it.src, draggable: false }))
   } else if (it.type === 'ink') {
@@ -260,17 +323,19 @@ function drawItem(i, it) {
     span.onblur = () => !it.text.trim() && remove(i, it)
     node.append(span)
   }
-  if (it.type !== 'text') node.append(el('div', { className: 'handle' }))
+  if (it.type !== 'text' && it.type !== 'note') node.append(el('div', { className: 'handle' }))
   place(node, it)
   node.onpointerdown = e => {
     if (e.target.tagName === 'SPAN') return
     e.preventDefault()
     select({ i, it, node })
     const [x, y, w, h] = [it.x, it.y, it.w, it.h]
+    let stepped = false
+    const step1 = () => { if (!stepped) { stepped = true; mark() } } // an undo step only if it really moves
     if (e.target.className === 'handle') {
       const keep = it.type === 'image' ? h / w : 0 // images keep aspect ratio
-      drag(e, (dx, dy) => { it.w = Math.max(4, w + dx); it.h = keep ? it.w * keep : Math.max(4, h + dy); place(node, it) })
-    } else drag(e, (dx, dy) => { it.x = x + dx; it.y = y + dy; place(node, it) })
+      drag(e, (dx, dy) => { step1(); it.w = Math.max(4, w + dx); it.h = keep ? it.w * keep : Math.max(4, h + dy); place(node, it) })
+    } else drag(e, (dx, dy) => { step1(); it.x = x + dx; it.y = y + dy; place(node, it) })
   }
   $('viewer').children[i].querySelector('.layer').append(node)
   return node
@@ -278,6 +343,7 @@ function drawItem(i, it) {
 
 function startTool(e, i, layer) {
   select(null)
+  if (tool !== 'select') mark()
   const r = layer.getBoundingClientRect()
   const x = (e.clientX - r.left) / zoom, y = (e.clientY - r.top) / zoom
   const color = $('color').value, add = it => (pages[i].items.push(it), drawItem(i, it))
@@ -289,8 +355,15 @@ function startTool(e, i, layer) {
     const it = { type: 'text', x, y, size: +$('size').value || 14, color, text: '', font: $('font').value }
     e.preventDefault()
     add(it).querySelector('span').focus()
-  } else if (tool === 'whiteout' || tool === 'highlight') {
-    const it = tool === 'whiteout' ? { type: 'rect', x, y, w: 0, h: 0, color: '#ffffff', opacity: 1 } : { type: 'rect', x, y, w: 0, h: 0, color: '#ffeb3b', opacity: 0.4 }
+  } else if (tool === 'note') {
+    e.preventDefault()
+    const text = prompt('Comment:')
+    // 22 view units is the icon size PDF readers draw for a sticky note with no appearance stream.
+    if (text && text.trim()) { add({ type: 'note', x: x - 11, y: y - 11, w: 22, h: 22, text: text.trim() }); buildNotes() }
+    setTool('select')
+  } else if (tool === 'whiteout' || tool === 'highlight' || tool === 'redact') {
+    const [type, color, opacity] = { whiteout: ['rect', '#ffffff', 1], highlight: ['rect', '#ffeb3b', 0.4], redact: ['redact', '#000000', 1] }[tool]
+    const it = { type, x, y, w: 0, h: 0, color, opacity }
     add(it)
     drag(e, (dx, dy) => {
       Object.assign(it, { x: Math.min(x, x + dx), y: Math.min(y, y + dy), w: Math.abs(dx), h: Math.abs(dy) })
@@ -430,7 +503,12 @@ function setTool(t) {
   tool = t
   document.body.className = 'tool-' + t
   document.querySelectorAll('#tools [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t))
-  status({ stamp: 'Click on a page to place it (Esc to cancel)', edit: 'Click a line of text to edit it' }[t] ?? '')
+  status({
+    stamp: 'Click on a page to place it (Esc to cancel)',
+    edit: 'Click a line of text to edit it',
+    note: 'Click where the comment belongs',
+    redact: 'Drag over content to black it out. Saving deletes it from the file.',
+  }[t] ?? '')
 }
 document.querySelectorAll('#tools [data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool)))
 
@@ -444,11 +522,136 @@ $('font').replaceChildren(...Object.entries({ Sans: 'Helvetica', 'Sans bold': 'H
 
 addEventListener('keydown', e => {
   if (e.key === 'Escape') { select(null); setTool('select') }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !document.activeElement.isContentEditable && document.activeElement.tagName !== 'INPUT') remove(sel.i, sel.it)
+  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !document.activeElement.isContentEditable && document.activeElement.tagName !== 'INPUT') { mark(); remove(sel.i, sel.it) }
+  if (!(e.ctrlKey || e.metaKey)) return
+  const k = e.key.toLowerCase()
+  if (k === 'f') return e.preventDefault(), $('q').select()
+  // While typing, leave Ctrl+Z to the field's own undo.
+  if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT') return
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); restore(undos, redos) }
+  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); restore(redos, undos) }
 })
 
 $('zoomIn').onclick = () => { zoom = Math.min(zoom * 1.2, 5); doc && build() }
 $('zoomOut').onclick = () => { zoom = Math.max(zoom / 1.2, 0.3); doc && build() }
+
+// ---------- find ----------
+let hits = [], hitAt = -1, lastQ = ''
+
+async function find(q) {
+  lastQ = q
+  hits = []
+  hitAt = -1
+  if (q && doc) for (let i = 0; i < pages.length; i++) {
+    for (const l of (await textLines(i)).lines) {
+      const t = l.text.toLowerCase()
+      // ponytail: the hit box is interpolated across the line, so it is approximate for proportional
+      // fonts. Exact boxes would mean matching across pdf.js text items instead of joined lines.
+      const per = (l.x1 - l.x0) / t.length
+      for (let k = t.indexOf(q); k >= 0; k = t.indexOf(q, k + 1))
+        hits.push({ i, x: l.x0 + per * k, y: l.y - l.size, w: per * q.length, h: l.size * 1.25 })
+    }
+  }
+  hits.length ? step(1) : drawHits()
+}
+
+function drawHits() {
+  document.querySelectorAll('.hit').forEach(n => n.remove())
+  hits.forEach((h, n) => {
+    const d = el('div', { className: 'hit' + (n === hitAt ? ' on' : '') })
+    Object.assign(d.style, { left: h.x * zoom + 'px', top: h.y * zoom + 'px', width: h.w * zoom + 'px', height: h.h * zoom + 'px' })
+    $('viewer').children[h.i]?.querySelector('.layer').append(d)
+  })
+  $('hitCount').textContent = !lastQ ? '' : hits.length ? `${hitAt + 1}/${hits.length}` : 'none'
+}
+
+function step(d) {
+  if (!hits.length) return drawHits()
+  hitAt = (hitAt + d + hits.length) % hits.length
+  drawHits()
+  $('viewer').children[hits[hitAt].i].scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+const go = async d => {
+  const q = $('q').value.trim().toLowerCase()
+  q === lastQ ? step(d) : await find(q)
+}
+$('next').onclick = () => go(1)
+$('prev').onclick = () => go(-1)
+$('q').onsearch = () => go(1)
+$('q').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? -1 : 1) } }
+
+// ---------- redaction ----------
+// Real redaction: rasterize every page that carries a redaction box, paint the boxes black, and replace
+// the page with that image plus an invisible text layer for the lines no box touched. Whatever was under
+// a box is gone from the file, and the rest of the page stays searchable and selectable.
+// ponytail: the page loses its vector text and any form fields. Rewriting the content stream in place
+// would keep them; do that only if someone needs it.
+async function applyRedactions() {
+  const todo = pages.flatMap((p, i) => (p.items.some(it => it.type === 'redact') ? [i] : []))
+  if (!todo.length) return false
+  mark()
+  status('Applying redactions\u2026')
+  const S = 2 // 144 dpi
+  for (const i of todo) {
+    const boxes = pages[i].items.filter(it => it.type === 'redact')
+    const { w, h } = viewBox(doc.getPage(i))
+    const page = await pdf.getPage(i + 1), viewport = page.getViewport({ scale: S })
+    const canvas = el('canvas', { width: viewport.width, height: viewport.height })
+    const g = canvas.getContext('2d')
+    g.fillStyle = '#fff'
+    g.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({ canvas, viewport }).promise
+    g.fillStyle = '#000'
+    for (const b of boxes) g.fillRect(b.x * S, b.y * S, b.w * S, b.h * S)
+    // Drop a whole line if any box touches it, so half-covered words can't be read back off the text layer.
+    const keep = (await textLines(i)).lines
+      .filter(l => !boxes.some(b => l.x1 > b.x && l.x0 < b.x + b.w && l.y > b.y && l.y - l.size < b.y + b.h))
+      .map(l => ({ text: l.text, x: l.x0, w: l.x1 - l.x0, y: l.y, size: l.size }))
+    const tmp = await PDFDocument.create()
+    const flatPage = tmp.addPage([w, h])
+    flatPage.drawImage(await tmp.embedPng(canvas.toDataURL('image/png')), { x: 0, y: 0, width: w, height: h })
+    await addTextLayer(tmp, 0, keep)
+    const [copied] = await doc.copyPages(tmp, [0])
+    doc.insertPage(i, copied)
+    doc.removePage(i + 1)
+    pages[i].items = pages[i].items.filter(it => it.type !== 'redact')
+  }
+  await refresh()
+  return true
+}
+
+// ---------- comments ----------
+// Our own notes, still editable, plus the comments already in the file, which are read-only here.
+let incoming = []
+async function loadAnnots() {
+  incoming = []
+  for (let i = 0; i < pages.length; i++)
+    for (const a of await (await pdf.getPage(i + 1)).getAnnotations()) {
+      const text = (a.contentsObj?.str ?? a.contents ?? '').trim()
+      if (text) incoming.push({ i, text, who: (a.titleObj?.str ?? a.title ?? '').trim() })
+    }
+}
+
+function buildNotes() {
+  const box = $('notes')
+  box.replaceChildren()
+  const mine = pages.flatMap((p, i) => p.items.filter(it => it.type === 'note').map(it => ({ i, it })))
+  if (!mine.length && !incoming.length) return showSide()
+  box.append(el('h3', { textContent: `Comments (${mine.length + incoming.length})` }))
+  for (const r of [...mine, ...incoming].sort((a, b) => a.i - b.i)) {
+    const row = el('div', { className: 'note-row', title: 'Go to page ' + (r.i + 1) })
+    row.onclick = () => $('viewer').children[r.i]?.scrollIntoView({ behavior: 'smooth' })
+    if (r.it) {
+      const del = el('button', { textContent: '\u2715', title: 'Delete comment' })
+      del.onclick = e => { e.stopPropagation(); mark(); remove(r.i, r.it) }
+      row.append(del)
+    }
+    row.append(el('b', { textContent: `p.${r.i + 1}${r.who ? ' \u00b7 ' + r.who : r.it ? '' : ' \u00b7 in file'}` }), r.it ? r.it.text : r.text)
+    box.append(row)
+  }
+  showSide()
+}
 
 // ---------- images ----------
 const toPng = src => new Promise((res, rej) => {

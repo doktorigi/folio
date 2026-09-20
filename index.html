@@ -25,7 +25,9 @@
       <button data-tool="edit" title="Click existing text to change it">Edit text</button>
       <button data-tool="text">Add text</button>
       <button data-tool="whiteout" title="Cover content with white (hides it visually; the text underneath is NOT removed)">Whiteout</button>
+      <button data-tool="redact" title="Black out content and delete it from the file when you save">Redact</button>
       <button data-tool="highlight">Highlight</button>
+      <button data-tool="note" title="Add a comment (saved as a real PDF sticky note)">Note</button>
       <button data-tool="draw">Draw</button>
       <button id="image">Image</button>
       <button id="sign">Sign</button>
@@ -36,6 +38,16 @@
       <input id="size" type="number" value="14" min="4" max="144" title="Font size" aria-label="Font size">
     </span>
     <span class="group">
+      <button id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+      <button id="redo" title="Redo (Ctrl+Y)" disabled>↷</button>
+    </span>
+    <span class="group">
+      <input id="q" type="search" placeholder="Find (Ctrl+F)" aria-label="Find">
+      <button id="prev" title="Previous match (Shift+Enter)" aria-label="Previous match">‹</button>
+      <button id="next" title="Next match (Enter)" aria-label="Next match">›</button>
+      <span id="hitCount"></span>
+    </span>
+    <span class="group">
       <button id="zoomOut" aria-label="Zoom out">−</button>
       <button id="zoomIn" aria-label="Zoom in">+</button>
     </span>
@@ -43,7 +55,10 @@
   </header>
   <aside id="thumbs"></aside>
   <main id="viewer"><p class="empty">Open or drop a PDF to start — or click “+ Page” for a blank one.</p></main>
-  <aside id="forms" hidden></aside>
+  <aside id="side" hidden>
+    <div id="notes"></div>
+    <div id="forms"></div>
+  </aside>
 
   <input id="file" type="file" accept="application/pdf" hidden>
   <input id="mergeFile" type="file" accept="application/pdf" multiple hidden>

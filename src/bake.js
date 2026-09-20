@@ -1,7 +1,7 @@
 // Burns overlay items into the PDF. Pure pdf-lib, so it runs in Node too (see test/).
 // Item coords are "view units": the page as displayed (rotation applied) at zoom 1, y down.
 import {
-  PDFDocument, StandardFonts, LineCapStyle, TextRenderingMode, rgb,
+  PDFDocument, PDFString, StandardFonts, LineCapStyle, TextRenderingMode, rgb,
   pushGraphicsState, popGraphicsState, concatTransformationMatrix, setTextRenderingMode, setCharacterSqueeze,
 } from 'pdf-lib'
 
@@ -23,6 +23,9 @@ export function viewBox(page) {
   const M = { 0: [1, 0, 0, 1, x, y], 90: [0, 1, -1, 0, x + w, y], 180: [-1, 0, 0, -1, x + w, y + h], 270: [0, -1, 1, 0, x, y + h] }[r]
   return r % 180 ? { w: h, h: w, M } : { w, h, M }
 }
+
+// View units (y up, rotation applied) -> PDF user space, for things that ignore the content matrix (annotations).
+const toUser = (M, x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]]
 
 const hex = (c = '#000000') => rgb(...[1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16) / 255))
 
@@ -76,7 +79,8 @@ export async function bake(bytes, pages) {
     isolate(page)
     page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...M))
     for (const it of items) {
-      if (it.type === 'rect') {
+      if (it.type === 'rect' || it.type === 'redact') {
+        // 'redact' normally never gets here: main.js rasterizes those pages first so the content is really gone.
         page.drawRectangle({ x: it.x, y: H - it.y - it.h, width: it.w, height: it.h, color: hex(it.color), opacity: it.opacity })
       } else if (it.type === 'image') {
         if (!images.has(it.src)) images.set(it.src, await doc.embedPng(it.src))
@@ -85,6 +89,14 @@ export async function bake(bytes, pages) {
         const name = it.font ?? StandardFonts.Helvetica, font = await getFont(doc, name)
         it.text.split('\n').forEach((line, n) =>
           page.drawText(clean(font, line), { x: it.x, y: H - it.y - (n * 1.2 + FONTS[name].base) * it.size, size: it.size, font, color: hex(it.color) }))
+      } else if (it.type === 'note') {
+        // A real PDF sticky note, so other readers see the comment. ponytail: no /AP, viewers draw their own icon.
+        const [x0, y0] = toUser(M, it.x, H - it.y - it.h), [x1, y1] = toUser(M, it.x + it.w, H - it.y)
+        page.node.addAnnot(doc.context.register(doc.context.obj({
+          Type: 'Annot', Subtype: 'Text', Name: 'Comment', Open: false, C: [1, 0.85, 0.3],
+          Rect: [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)],
+          T: PDFString.of(it.who || 'Folio'), Contents: PDFString.of(it.text),
+        })))
       } else if (it.type === 'ink') {
         const pts = it.points.map(([px, py]) => ({ x: it.x + px * it.w / it.ow, y: H - it.y - py * it.h / it.oh }))
         if (pts.length === 1) pts.push(pts[0])
