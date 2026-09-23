@@ -7,35 +7,39 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg">
   <meta name="theme-color" content="#2563eb">
+  <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body class="tool-select">
   <header>
     <b>Folio</b>
     <span class="group">
-      <button id="open" title="Open PDF (or drop one anywhere)">Open</button>
+      <button id="open" title="Open PDF, or drop one anywhere (Ctrl+O)">Open</button>
       <button id="merge" title="Append pages from PDFs or images (or drop them anywhere)">Insert</button>
       <button id="blank" title="Add a blank page">+ Page</button>
       <button id="ocr" title="Recognize text in scanned pages (runs on your device)">OCR</button>
       <button id="extract" title="Save a page range as a new PDF (Ctrl+click thumbnails to pre-fill it)">Extract</button>
-      <button id="save" title="Download edited PDF">Save</button>
-      <button id="print" title="Print">Print</button>
+      <button id="save" title="Download edited PDF (Ctrl+S)">Save</button>
+      <button id="print" title="Print (Ctrl+P)">Print</button>
     </span>
     <span class="group" id="tools">
-      <button data-tool="select" class="on">Select</button>
-      <button data-tool="edit" title="Click existing text to change it">Edit text</button>
-      <button data-tool="text">Add text</button>
-      <button data-tool="whiteout" title="Cover content with white (hides it visually; the text underneath is NOT removed)">Whiteout</button>
+      <button data-tool="select" class="on" title="Select, move and resize items, or select page text to copy (V)">Select</button>
+      <button data-tool="edit" title="Click existing text to change it (E)">Edit text</button>
+      <button data-tool="text" title="Add text (T)">Add text</button>
+      <button data-tool="whiteout" title="Cover content with white (hides it visually; the text underneath is NOT removed) (W)">Whiteout</button>
       <button data-tool="redact" title="Black out content and delete it from the file when you save">Redact</button>
-      <button data-tool="highlight">Highlight</button>
-      <button data-tool="note" title="Add a comment (saved as a real PDF sticky note)">Note</button>
-      <button data-tool="draw">Draw</button>
+      <button data-tool="highlight" title="Highlight (H)">Highlight</button>
+      <button data-tool="note" title="Add a comment, saved as a real PDF sticky note (N)">Note</button>
+      <button data-tool="draw" title="Freehand drawing (D)">Draw</button>
       <button data-tool="rect" title="Rectangle outline" aria-label="Rectangle">▭</button>
       <button data-tool="ellipse" title="Ellipse" aria-label="Ellipse">◯</button>
       <button data-tool="line" title="Line" aria-label="Line">╱</button>
       <button data-tool="arrow" title="Arrow" aria-label="Arrow">→</button>
       <button id="image">Image</button>
       <button id="sign">Sign</button>
+      <button data-tool="check" title="Checkmark stamp" aria-label="Checkmark">✓</button>
+      <button data-tool="cross" title="Cross stamp" aria-label="Cross">✗</button>
+      <button data-tool="date" title="Today's date">Date</button>
     </span>
     <span class="group">
       <input id="color" type="color" value="#000000" title="Color">
@@ -54,8 +58,14 @@
       <span id="hitCount"></span>
     </span>
     <span class="group">
-      <button id="zoomOut" aria-label="Zoom out">−</button>
-      <button id="zoomIn" aria-label="Zoom in">+</button>
+      <input id="pageNo" type="number" min="1" title="Page number: type one to jump there" aria-label="Page number">
+      <span id="pageCount"></span>
+    </span>
+    <span class="group">
+      <button id="zoomOut" title="Zoom out (Ctrl+−)" aria-label="Zoom out">−</button>
+      <span id="zoomPct"></span>
+      <button id="zoomIn" title="Zoom in (Ctrl+=)" aria-label="Zoom in">+</button>
+      <button id="fitWidth" title="Fit page width (Ctrl+0)">Fit</button>
     </span>
     <span id="status"></span>
   </header>

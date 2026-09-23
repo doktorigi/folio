@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFDocument, StandardFonts, degrees, PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList, PDFRadioGroup } from 'pdf-lib'
-import { bake as bakeWith, viewBox, addTextLayer, FONTS, arrowHead, ends } from './bake.js'
+import { bake as bakeWith, viewBox, addTextLayer, FONTS, arrowHead, ends, MARKS } from './bake.js'
 import { parseRange } from './range.js'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
@@ -57,7 +57,14 @@ const observer = new IntersectionObserver(entries => entries.forEach(e => {
   if (!e.isIntersecting) return
   observer.unobserve(e.target)
   paint(e.target.querySelector('canvas'), +e.target.dataset.i, e.target.clientWidth)
+  if (e.target.classList.contains('page')) textLayer(e.target)
 }), { rootMargin: '400px' })
+
+// Invisible pdf.js text over the canvas so text can be selected and copied. Only the Select tool reaches it (CSS).
+async function textLayer(node) {
+  const page = await pdf.getPage(+node.dataset.i + 1), container = node.querySelector('.textLayer')
+  await new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container, viewport: page.getViewport({ scale: 1 }) }).render()
+}
 
 async function paint(canvas, i, cssWidth) {
   const page = await pdf.getPage(i + 1)
@@ -80,9 +87,11 @@ function build() {
     page.dataset.i = i
     page.style.width = w * zoom + 'px'
     page.style.height = h * zoom + 'px'
+    page.style.setProperty('--total-scale-factor', zoom)
     const layer = el('div', { className: 'layer' })
     layer.onpointerdown = e => e.target === layer && startTool(e, i, layer)
-    page.append(el('canvas'), layer)
+    page.onpointerdown = e => e.target.closest('.textLayer') && select(null) // Select tool: clicks pass through to the text
+    page.append(el('canvas'), el('div', { className: 'textLayer' }), layer)
     $('viewer').append(page)
     p.items.forEach(it => drawItem(i, it))
     observer.observe(page)
@@ -108,7 +117,42 @@ function build() {
     observer.observe(t)
   })
   $('viewer').scrollTop = top
+  $('pageCount').textContent = '/ ' + pages.length
+  $('pageNo').max = pages.length
+  $('zoomPct').textContent = Math.round(zoom * 100) + '%'
   drawHits()
+  trackPage()
+}
+
+// ---------- page number & zoom ----------
+// The current page is the one crossing the middle of the viewer. ponytail: linear scan per scroll, fine for hundreds of pages.
+let current = 0
+function trackPage() {
+  const v = $('viewer'), mid = v.getBoundingClientRect().top + v.clientHeight / 2
+  const n = [...v.children].findIndex(p => p.getBoundingClientRect().bottom >= mid)
+  current = n < 0 ? Math.max(0, pages.length - 1) : n
+  if (document.activeElement !== $('pageNo')) $('pageNo').value = pages.length ? current + 1 : ''
+}
+$('viewer').addEventListener('scroll', trackPage, { passive: true })
+$('pageNo').onchange = () => {
+  const n = Math.min(Math.max(1, Math.round(+$('pageNo').value) || 1), pages.length)
+  $('viewer').children[n - 1]?.scrollIntoView()
+  $('pageNo').blur()
+  trackPage()
+}
+function setZoom(z) {
+  if (!doc) return
+  const keep = current
+  zoom = Math.min(Math.max(z, 0.3), 5)
+  build()
+  $('viewer').children[keep]?.scrollIntoView()
+}
+$('zoomIn').onclick = () => setZoom(zoom * 1.2)
+$('zoomOut').onclick = () => setZoom(zoom / 1.2)
+$('fitWidth').onclick = () => {
+  if (!doc) return
+  const widest = Math.max(...pages.map((_, i) => viewBox(doc.getPage(i)).w))
+  setZoom(($('viewer').clientWidth - 40) / widest) // 2 x 16px padding + scrollbar
 }
 
 // ---------- undo / redo ----------
@@ -439,6 +483,15 @@ function startTool(e, i, layer) {
       Object.assign(it, { ow: it.w, oh: it.h, points: it.points.map(([px, py]) => [px - mx, py - my]) })
       drawItem(i, it)
     })
+  } else if (tool === 'check' || tool === 'cross') {
+    e.preventDefault()
+    const d = (+$('size').value || 14) * 1.2
+    add({ type: 'shape', kind: tool, x: x - d / 2, y: y - d / 2, w: d, h: d, a: [0, 0], b: [1, 1], color, width: stroke() })
+  } else if (tool === 'date') {
+    e.preventDefault()
+    const size = +$('size').value || 14
+    add({ type: 'text', x, y: y - size * 0.6, size, color, text: new Date().toLocaleDateString(), font: $('font').value })
+    setTool('select')
   } else if (tool === 'stamp' && stamp) {
     const img = new Image()
     img.onload = () => {
@@ -458,6 +511,7 @@ function shapeSvg(it) {
   let body
   if (it.kind === 'rect') body = `<rect width="${w}" height="${h}" ${attrs}/>`
   else if (it.kind === 'ellipse') body = `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" ${attrs}/>`
+  else if (MARKS[it.kind]) body = MARKS[it.kind].map(l => `<polyline points="${l.map(([u, v]) => `${u * w},${v * h}`).join(' ')}" ${attrs}/>`).join('')
   else {
     const [a, b] = ends(it)
     body = `<polyline points="${rel([a, b])}" ${attrs}/>`
@@ -581,6 +635,9 @@ function setTool(t) {
     stamp: 'Click on a page to place it (Esc to cancel)',
     edit: 'Click a line of text to edit it',
     note: 'Click where the comment belongs',
+    check: 'Click to place checkmarks (size follows the font size). Esc when done.',
+    cross: 'Click to place crosses (size follows the font size). Esc when done.',
+    date: "Click to place today's date",
     redact: 'Drag over content to black it out. Saving deletes it from the file.',
   }[t] ?? '')
 }
@@ -596,20 +653,43 @@ $('size').onchange = () => { if (sel?.it.type === 'text') { sel.it.size = +$('si
 $('font').onchange = () => { if (sel?.it.type === 'text') { sel.it.font = $('font').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
 $('font').replaceChildren(...Object.entries({ Sans: 'Helvetica', 'Sans bold': 'HelveticaBold', Serif: 'TimesRoman', 'Serif bold': 'TimesRomanBold', Mono: 'Courier', 'Mono bold': 'CourierBold' }).map(([label, k]) => el('option', { value: StandardFonts[k], textContent: label })))
 
+// ---------- copy / paste / duplicate ----------
+let clip = null // a copied item (plain data, no DOM node)
+function paste(i, it, offset) {
+  const copy = structuredClone(it) // node is non-enumerable, so it isn't cloned
+  if (offset) { copy.x += 10; copy.y += 10 }
+  pages[i].items.push(copy)
+  select({ i, it: copy, node: drawItem(i, copy) })
+  if (copy.type === 'note') buildNotes()
+}
+
+const LETTERS = { v: 'select', e: 'edit', t: 'text', w: 'whiteout', h: 'highlight', d: 'draw', n: 'note' }
 addEventListener('keydown', e => {
+  const typing = document.activeElement.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)
   if (e.key === 'Escape') { select(null); setTool('select') }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !document.activeElement.isContentEditable && document.activeElement.tagName !== 'INPUT') { mark(); remove(sel.i, sel.it) }
-  if (!(e.ctrlKey || e.metaKey)) return
+  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !typing) { mark(); remove(sel.i, sel.it) }
   const k = e.key.toLowerCase()
+  if (!(e.ctrlKey || e.metaKey)) {
+    if (!typing && !e.altKey && LETTERS[k] && doc) setTool(LETTERS[k])
+    return
+  }
   if (k === 'f') return e.preventDefault(), $('q').select()
-  // While typing, leave Ctrl+Z to the field's own undo.
-  if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT') return
+  if (k === 'o') return e.preventDefault(), $('file').click()
+  if (k === 's') return e.preventDefault(), $('save').click()
+  if (k === 'p') return e.preventDefault(), $('print').click()
+  if (k === '=' || k === '+') return e.preventDefault(), setZoom(zoom * 1.2)
+  if (k === '-') return e.preventDefault(), setZoom(zoom / 1.2)
+  if (k === '0') return e.preventDefault(), $('fitWidth').click()
+  // While typing, leave Ctrl+Z / C / V to the field itself.
+  if (typing) return
   if (k === 'z' && !e.shiftKey) { e.preventDefault(); restore(undos, redos) }
   else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); restore(redos, undos) }
+  else if (k === 'd' && sel) { e.preventDefault(); mark(); paste(sel.i, sel.it, true) }
+  // Copy only when an item is selected and no page text is highlighted, so copying text still works.
+  else if (k === 'c' && sel && getSelection().isCollapsed) { e.preventDefault(); clip = structuredClone(sel.it) }
+  else if (k === 'v' && clip && doc) { e.preventDefault(); mark(); paste(current, clip, sel?.i === current) }
 })
 
-$('zoomIn').onclick = () => { zoom = Math.min(zoom * 1.2, 5); doc && build() }
-$('zoomOut').onclick = () => { zoom = Math.max(zoom / 1.2, 0.3); doc && build() }
 
 // ---------- find ----------
 let hits = [], hitAt = -1, lastQ = ''

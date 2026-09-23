@@ -1,42 +1,75 @@
 * { box-sizing: border-box; }
-body { margin: 0; height: 100vh; display: grid; grid-template: auto 1fr / 150px 1fr auto; font: 14px system-ui, sans-serif; color: #222; }
-header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 12px; background: #f4f4f5; border-bottom: 1px solid #ddd; }
+/* Follows the system theme. Pages stay white: they are the document. */
+:root {
+  color-scheme: light dark;
+  --fg: light-dark(#222, #e4e4e7); --muted: light-dark(#666, #a1a1aa);
+  --bar: light-dark(#f4f4f5, #1f1f23); --panel: light-dark(#e9e9ec, #18181b); --bg: light-dark(#fff, #26262b);
+  --line: light-dark(#ddd, #3f3f46); --control: light-dark(#ccc, #52525b); --hover: light-dark(#eee, #34343a);
+  --desk: light-dark(#525659, #0f0f12); --accent: #2563eb;
+  --note-bg: light-dark(#fffbe6, #3a3320); --note-line: light-dark(#f0e0a0, #6b5a24);
+}
+body { margin: 0; height: 100vh; display: grid; grid-template: auto 1fr / 150px 1fr auto; font: 14px system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
 .group { display: flex; gap: 4px; align-items: center; }
-button { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
-button:hover { background: #eee; }
-button.on { background: #2563eb; color: #fff; border-color: #2563eb; }
+button { padding: 5px 10px; border: 1px solid var(--control); border-radius: 4px; background: var(--bg); color: var(--fg); cursor: pointer; }
+button:hover { background: var(--hover); }
+button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select { background: var(--bg); color: var(--fg); border: 1px solid var(--control); border-radius: 4px; }
 
-#q { width: 140px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
-#hitCount { color: #666; font-size: 12px; min-width: 4ch; }
-#status { color: #666; }
+#q { width: 140px; padding: 4px 6px; }
+#pageNo { width: 52px; text-align: right; }
+#zoomPct { min-width: 4.5ch; text-align: center; color: var(--muted); font-size: 12px; }
+#hitCount { color: var(--muted); font-size: 12px; min-width: 4ch; }
+#status { color: var(--muted); }
+#pageCount { color: var(--muted); }
 
-#thumbs { overflow: auto; background: #e9e9ec; padding: 8px; }
+#thumbs { overflow: auto; background: var(--panel); padding: 8px; }
 .thumb { margin-bottom: 10px; text-align: center; font-size: 12px; cursor: grab; }
 .thumb canvas { width: 100%; background: #fff; box-shadow: 0 1px 3px #0003; }
-.thumb.picked canvas { outline: 3px solid #2563eb; }
+.thumb.picked canvas { outline: 3px solid var(--accent); }
 .thumb button { padding: 0 6px; font-size: 12px; }
 
-#viewer { overflow: auto; background: #525659; padding: 16px; }
+#viewer { overflow: auto; background: var(--desk); padding: 16px; }
 .empty { color: #ddd; text-align: center; margin-top: 30vh; font-size: 16px; }
 .page { position: relative; margin: 0 auto 16px; background: #fff; box-shadow: 0 2px 8px #0006; }
 .page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .layer { position: absolute; inset: 0; overflow: hidden; }
+/* Select tool: empty spots of the overlay let clicks through to the page text, so it can be selected and copied. */
+body.tool-select .layer { pointer-events: none; }
+body.tool-select .item { pointer-events: auto; }
+
+/* pdf.js text layer (trimmed from pdfjs-dist/web/pdf_viewer.css): transparent text positioned over the canvas. */
+.textLayer { position: absolute; top: 0; left: 0; --scale-round-x: 1px; --scale-round-y: 1px; overflow: clip; line-height: 1; text-align: initial; transform-origin: 0 0; forced-color-adjust: none; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+/* pdf.js sizes the layer as the unrotated page and leaves turning it to CSS. */
+.textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
+.textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
+.textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) { --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.textLayer .markedContent { display: contents; }
+.textLayer ::selection { background: rgb(0 100 255 / 0.3); color: transparent; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+body:not(.tool-select) .textLayer { pointer-events: none; }
 body:not(.tool-select) .layer { cursor: crosshair; touch-action: none; }
 body.tool-text .layer { cursor: text; }
 
 .item { position: absolute; margin: -3px; padding: 3px; border: 1px dashed transparent; cursor: move; }
-.item:hover, .item.sel { border-color: #2563eb; }
+.item:hover, .item.sel { border-color: var(--accent); }
 .item img, .item svg { display: block; width: 100%; height: 100%; pointer-events: none; }
 .item span { display: block; min-width: 1ch; font-family: Helvetica, Arial, sans-serif; line-height: 1.2; white-space: pre; outline: none; cursor: text; }
-.handle { position: absolute; right: -6px; bottom: -6px; width: 10px; height: 10px; background: #2563eb; cursor: nwse-resize; display: none; }
+.handle { position: absolute; right: -6px; bottom: -6px; width: 10px; height: 10px; background: var(--accent); cursor: nwse-resize; display: none; }
 .item.sel .handle { display: block; }
 
-#side { width: 240px; overflow: auto; padding: 12px; border-left: 1px solid #ddd; }
+#side { width: 240px; overflow: auto; padding: 12px; border-left: 1px solid var(--line); }
+dialog { background: var(--bar); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; }
 #forms label { display: block; margin-bottom: 10px; font-size: 12px; overflow-wrap: anywhere; }
 #forms input:not([type=checkbox]), #forms select { display: block; width: 100%; margin-top: 2px; }
 
-#pad { border: 1px solid #ccc; touch-action: none; max-width: 100%; }
-#saved img { height: 50px; border: 1px solid #ccc; margin: 4px; cursor: pointer; }
+#pad { background: #fff; border: 1px solid var(--control); touch-action: none; max-width: 100%; }
+#saved img { height: 50px; background: #fff; border: 1px solid var(--control); margin: 4px; cursor: pointer; }
 
 .item.note { background: #ffd54f; border: 1px solid #b8860b; border-radius: 3px 3px 3px 0; }
 .item.note::after { content: "💬"; font-size: 12px; line-height: 1; }
@@ -45,8 +78,8 @@ body.tool-text .layer { cursor: text; }
 .hit { position: absolute; background: #ffeb3b80; outline: 1px solid #fbc02d; pointer-events: none; }
 .hit.on { background: #ff980099; outline-color: #e65100; }
 
-.note-row { font-size: 12px; margin-bottom: 8px; padding: 6px; background: #fffbe6; border: 1px solid #f0e0a0; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
-.note-row b { display: block; color: #666; font-weight: normal; }
+.note-row { font-size: 12px; margin-bottom: 8px; padding: 6px; background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
+.note-row b { display: block; color: var(--muted); font-weight: normal; }
 .note-row button { float: right; padding: 0 5px; font-size: 11px; }
 #notes h3, #forms h3 { margin: 0 0 8px; font-size: 13px; }
 #size, #stroke { width: 56px; }

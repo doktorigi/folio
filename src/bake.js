@@ -62,6 +62,8 @@ export function arrowHead([ax, ay], [bx, by], width) {
   const t = Math.atan2(by - ay, bx - ax), len = 6 + width * 3
   return [t + 2.7, t - 2.7].map(u => [bx + len * Math.cos(u), by + len * Math.sin(u)])
 }
+// Checkmark and cross stamps: polylines as fractions of the item's box.
+export const MARKS = { check: [[[0, 0.55], [0.35, 0.9], [1, 0.1]]], cross: [[[0, 0], [1, 1]], [[1, 0], [0, 1]]] }
 // A shape's line/arrow end points in view units: a and b are fractions of its box, so resizing scales them.
 export const ends = it => [it.a, it.b].map(([u, v]) => [it.x + u * it.w, it.y + v * it.h])
 
@@ -109,7 +111,11 @@ export async function bake(bytes, pages, loadFont) {
         const stroke = { borderColor: hex(it.color), borderWidth: it.width }
         if (it.kind === 'rect') page.drawRectangle({ x: it.x, y: H - it.y - it.h, width: it.w, height: it.h, ...stroke })
         else if (it.kind === 'ellipse') page.drawEllipse({ x: it.x + it.w / 2, y: H - it.y - it.h / 2, xScale: it.w / 2, yScale: it.h / 2, ...stroke })
-        else {
+        else if (MARKS[it.kind]) {
+          const pt = ([u, v]) => ({ x: it.x + u * it.w, y: H - it.y - v * it.h })
+          for (const l of MARKS[it.kind]) for (let k = 1; k < l.length; k++)
+            page.drawLine({ start: pt(l[k - 1]), end: pt(l[k]), thickness: it.width, color: hex(it.color), lineCap: LineCapStyle.Round })
+        } else {
           const [a, b] = ends(it), segs = [[a, b]]
           if (it.kind === 'arrow') arrowHead(a, b, it.width).forEach(p => segs.push([p, b]))
           for (const [p, q] of segs)

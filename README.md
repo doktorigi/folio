@@ -6,7 +6,8 @@ Built on [pdf.js](https://github.com/mozilla/pdf.js) (rendering) and [pdf-lib](h
 
 ## Features
 
-- **View**: open or drag-and-drop a PDF, zoom, see page thumbnails
+- **View**: open or drag-and-drop a PDF, see page thumbnails, zoom (with fit to width), and jump to any page by typing its number. Light and dark themes follow your system.
+- **Select and copy text**: with the Select tool, drag over page text to select it and copy it.
 - **Edit existing text**: click any line to change it. Folio matches the font style, size and colors, and covers the original with the page's own background color.
 - **OCR**: recognizes text in scanned pages, so they become searchable, selectable and editable. It runs on your device, and pages are never uploaded.
 - **Redact**: drag over anything secret. On save the page is rasterized and the covered content is deleted from the file, not just hidden. The rest of the page stays searchable text.
@@ -16,10 +17,24 @@ Built on [pdf.js](https://github.com/mozilla/pdf.js) (rendering) and [pdf-lib](h
 - **Add content**: text (font, size, color), whiteout, highlight, freehand drawing, shapes (rectangle, ellipse, line, arrow, with adjustable line width), and images. Move and resize any of these, and press Delete to remove one.
 - **Any language**: added and edited text keeps Cyrillic, Greek, accented and other non-Latin characters. Folio embeds a matching DejaVu font, but only when the text needs it.
 - **Sign**: draw or type a signature and place it anywhere. The last 5 signatures are remembered locally.
+- **Stamps**: click on ✓ checkmarks and ✗ crosses (handy for forms without real fields), or today's date.
+- **Copy and paste**: Ctrl+D duplicates the selected item. Ctrl+C and Ctrl+V copy it to the page you're viewing, which is handy for initialing every page.
 - **Forms**: fill text fields, checkboxes, dropdowns, and radio groups
 - **Pages**: rotate, delete, drag to reorder, add blank pages, insert/merge other PDFs, and extract a page range such as `1-3, 5, 8-` into a new PDF (Ctrl+click thumbnails to pre-fill it)
 - **Images to PDF**: drop or insert photos and scans (JPEG, PNG, WebP…) and each one becomes a page. Drop images on an empty window to start a new PDF from them.
 - **Save and print**: downloads the PDF with all edits burned in, or prints it
+
+## Keyboard shortcuts
+
+| Keys | Action |
+|---|---|
+| Ctrl+O / Ctrl+S / Ctrl+P | Open / Save / Print |
+| Ctrl+Z / Ctrl+Y | Undo / Redo |
+| Ctrl+F, then Enter / Shift+Enter | Find, next / previous match |
+| Ctrl+= / Ctrl+− / Ctrl+0 | Zoom in / out / fit width |
+| Ctrl+D, Ctrl+C, Ctrl+V | Duplicate, copy, paste the selected item |
+| V, E, T, W, H, D, N | Select, Edit text, Add text, Whiteout, Highlight, Draw, Note |
+| Delete, Esc | Delete the selected item, back to Select |
 
 ## Install
 

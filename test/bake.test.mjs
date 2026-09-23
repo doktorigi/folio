@@ -133,3 +133,13 @@ test('shapes bake as strokes inside their box, arrows pointing the way they were
   assert.deepEqual([ax, bx], [120, 20])
   for (const [px] of arrowHead([ax, 100], [bx, 100], 2)) assert.ok(px > bx)
 })
+
+test('checkmark and cross stamps bake as strokes spanning their box', async () => {
+  const src = await PDFDocument.create()
+  src.addPage([200, 200])
+  const items = ['check', 'cross'].map((kind, k) => ({ type: 'shape', kind, x: 20 + k * 50, y: 20, w: 20, h: 20, a: [0, 0], b: [1, 1], color: '#000000', width: 2 }))
+  const ops = await (await (await getDocument({ data: await bake(await src.save(), [{ items }]) }).promise).getPage(1)).getOperatorList()
+  const paths = ops.fnArray.flatMap((f, k) => (f === OPS.constructPath ? [ops.argsArray[k]] : []))
+  assert.equal(paths.length, 4) // check: 2 segments, cross: 2 lines
+  assert.ok(paths.every(p => p[0] === OPS.stroke))
+})
