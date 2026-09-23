@@ -5,16 +5,19 @@ import {
   pushGraphicsState, popGraphicsState, concatTransformationMatrix, setTextRenderingMode, setCharacterSqueeze,
 } from 'pdf-lib'
 
-// Standard PDF fonts we can write with, the CSS stack that looks like each on screen, and where the
-// baseline sits inside a 1.2 line-height box (as a fraction of font size) for that CSS font.
-const sans = { css: 'Helvetica, Arial, sans-serif', base: 0.95 }
-const serif = { css: '"Times New Roman", Times, serif', base: 0.94 }
-const mono = { css: '"Courier New", Courier, monospace', base: 0.87 }
+// Standard PDF fonts we can write with, the CSS stack that looks like each on screen, where the
+// baseline sits inside a 1.2 line-height box (as a fraction of font size) for that CSS font, and the
+// DejaVu TTF embedded instead when the text has characters the standard font lacks (Cyrillic, Greek...).
+const sans = { css: 'Helvetica, Arial, sans-serif', base: 0.95, ttf: 'DejaVuSans' }
+const serif = { css: '"Times New Roman", Times, serif', base: 0.94, ttf: 'DejaVuSerif' }
+const mono = { css: '"Courier New", Courier, monospace', base: 0.87, ttf: 'DejaVuSansMono' }
+const bold = f => ({ ...f, bold: true, ttf: f.ttf + '-Bold' })
 export const FONTS = {
-  [StandardFonts.Helvetica]: sans, [StandardFonts.HelveticaBold]: { ...sans, bold: true },
-  [StandardFonts.TimesRoman]: serif, [StandardFonts.TimesRomanBold]: { ...serif, bold: true },
-  [StandardFonts.Courier]: mono, [StandardFonts.CourierBold]: { ...mono, bold: true },
+  [StandardFonts.Helvetica]: sans, [StandardFonts.HelveticaBold]: bold(sans),
+  [StandardFonts.TimesRoman]: serif, [StandardFonts.TimesRomanBold]: bold(serif),
+  [StandardFonts.Courier]: mono, [StandardFonts.CourierBold]: bold(mono),
 }
+export const TTF_FILES = Object.values(FONTS).map(f => f.ttf + '.ttf')
 
 // Displayed size of a page + matrix mapping local coords (view units, y up) to PDF user space.
 export function viewBox(page) {
@@ -40,17 +43,27 @@ function isolate(page) {
 }
 
 const fonts = new WeakMap() // doc -> Map(name -> embedded font)
-async function getFont(doc, name) {
+// A standard font by name, or with load (file name -> bytes) a TTF, subset to the glyphs used.
+async function getFont(doc, name, load) {
   if (!fonts.has(doc)) fonts.set(doc, new Map())
   const m = fonts.get(doc)
-  if (!m.has(name)) m.set(name, await doc.embedFont(name))
+  if (!m.has(name)) {
+    if (load) doc.registerFontkit((await import('@pdf-lib/fontkit')).default)
+    m.set(name, load ? doc.embedFont(await load(name + '.ttf'), { subset: true }) : doc.embedFont(name))
+  }
   return m.get(name)
 }
-// ponytail: standard fonts are WinAnsi only, other chars become '?'. Embed a TTF via @pdf-lib/fontkit for full Unicode.
-function clean(font, s) {
-  const set = new Set(font.getCharacterSet())
-  return [...s].map(ch => (set.has(ch.codePointAt(0)) ? ch : '?')).join('')
+const missing = (font, s) => { const set = new Set(font.getCharacterSet()); return [...s].filter(ch => ch !== '\n' &&!set.has(ch.codePointAt(0))) }
+// Characters the font can't draw become '?' (the TTFs cover most scripts, but not emoji or CJK).
+const clean = (font, s) => { const bad = new Set(missing(font, s)); return [...s].map(ch => (bad.has(ch) ? '?' : ch)).join('') }
+
+// Two barbs of an arrowhead at b, pointing away from a. View units.
+export function arrowHead([ax, ay], [bx, by], width) {
+  const t = Math.atan2(by - ay, bx - ax), len = 6 + width * 3
+  return [t + 2.7, t - 2.7].map(u => [bx + len * Math.cos(u), by + len * Math.sin(u)])
 }
+// A shape's line/arrow end points in view units: a and b are fractions of its box, so resizing scales them.
+export const ends = it => [it.a, it.b].map(([u, v]) => [it.x + u * it.w, it.y + v * it.h])
 
 // Writes invisible text (OCR results) onto page i of doc so it becomes searchable, selectable and editable.
 // lines: [{ text, x, y, size, w }] in view units, y = baseline. Each line is squeezed to span exactly w.
@@ -68,7 +81,8 @@ export async function addTextLayer(doc, i, lines) {
   page.pushOperators(popGraphicsState())
 }
 
-export async function bake(bytes, pages) {
+// loadFont(fileName) -> TTF bytes. Without it, text the standard fonts can't draw is saved with '?'.
+export async function bake(bytes, pages, loadFont) {
   const doc = await PDFDocument.load(bytes)
   const images = new Map()
 
@@ -86,9 +100,21 @@ export async function bake(bytes, pages) {
         if (!images.has(it.src)) images.set(it.src, await doc.embedPng(it.src))
         page.drawImage(images.get(it.src), { x: it.x, y: H - it.y - it.h, width: it.w, height: it.h })
       } else if (it.type === 'text') {
-        const name = it.font ?? StandardFonts.Helvetica, font = await getFont(doc, name)
+        const name = it.font ?? StandardFonts.Helvetica
+        let font = await getFont(doc, name)
+        if (loadFont && missing(font, it.text).length) font = await getFont(doc, FONTS[name].ttf, loadFont)
         it.text.split('\n').forEach((line, n) =>
           page.drawText(clean(font, line), { x: it.x, y: H - it.y - (n * 1.2 + FONTS[name].base) * it.size, size: it.size, font, color: hex(it.color) }))
+      } else if (it.type === 'shape') {
+        const stroke = { borderColor: hex(it.color), borderWidth: it.width }
+        if (it.kind === 'rect') page.drawRectangle({ x: it.x, y: H - it.y - it.h, width: it.w, height: it.h, ...stroke })
+        else if (it.kind === 'ellipse') page.drawEllipse({ x: it.x + it.w / 2, y: H - it.y - it.h / 2, xScale: it.w / 2, yScale: it.h / 2, ...stroke })
+        else {
+          const [a, b] = ends(it), segs = [[a, b]]
+          if (it.kind === 'arrow') arrowHead(a, b, it.width).forEach(p => segs.push([p, b]))
+          for (const [p, q] of segs)
+            page.drawLine({ start: { x: p[0], y: H - p[1] }, end: { x: q[0], y: H - q[1] }, thickness: it.width, color: hex(it.color), lineCap: LineCapStyle.Round })
+        }
       } else if (it.type === 'note') {
         // A real PDF sticky note, so other readers see the comment. ponytail: no /AP, viewers draw their own icon.
         const [x0, y0] = toUser(M, it.x, H - it.y - it.h), [x1, y1] = toUser(M, it.x + it.w, H - it.y)

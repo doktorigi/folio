@@ -14,11 +14,12 @@
     <b>Folio</b>
     <span class="group">
       <button id="open" title="Open PDF (or drop one anywhere)">Open</button>
-      <button id="merge" title="Append pages from other PDFs">Insert PDF</button>
+      <button id="merge" title="Append pages from PDFs or images (or drop them anywhere)">Insert</button>
       <button id="blank" title="Add a blank page">+ Page</button>
       <button id="ocr" title="Recognize text in scanned pages (runs on your device)">OCR</button>
-      <button id="extract" title="Save selected pages as a new PDF">Extract</button>
+      <button id="extract" title="Save a page range as a new PDF (Ctrl+click thumbnails to pre-fill it)">Extract</button>
       <button id="save" title="Download edited PDF">Save</button>
+      <button id="print" title="Print">Print</button>
     </span>
     <span class="group" id="tools">
       <button data-tool="select" class="on">Select</button>
@@ -29,6 +30,10 @@
       <button data-tool="highlight">Highlight</button>
       <button data-tool="note" title="Add a comment (saved as a real PDF sticky note)">Note</button>
       <button data-tool="draw">Draw</button>
+      <button data-tool="rect" title="Rectangle outline" aria-label="Rectangle">▭</button>
+      <button data-tool="ellipse" title="Ellipse" aria-label="Ellipse">◯</button>
+      <button data-tool="line" title="Line" aria-label="Line">╱</button>
+      <button data-tool="arrow" title="Arrow" aria-label="Arrow">→</button>
       <button id="image">Image</button>
       <button id="sign">Sign</button>
     </span>
@@ -36,6 +41,7 @@
       <input id="color" type="color" value="#000000" title="Color">
       <select id="font" title="Font" aria-label="Font"></select>
       <input id="size" type="number" value="14" min="4" max="144" title="Font size" aria-label="Font size">
+      <input id="stroke" type="number" value="2" min="0.5" max="40" step="0.5" title="Line width for Draw and shapes" aria-label="Line width">
     </span>
     <span class="group">
       <button id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
@@ -54,14 +60,15 @@
     <span id="status"></span>
   </header>
   <aside id="thumbs"></aside>
-  <main id="viewer"><p class="empty">Open or drop a PDF to start — or click “+ Page” for a blank one.</p></main>
+  <main id="viewer"><p class="empty">Open or drop a PDF or images to start — or click “+ Page” for a blank one.</p></main>
   <aside id="side" hidden>
     <div id="notes"></div>
     <div id="forms"></div>
   </aside>
 
   <input id="file" type="file" accept="application/pdf" hidden>
-  <input id="mergeFile" type="file" accept="application/pdf" multiple hidden>
+  <input id="mergeFile" type="file" accept="application/pdf,image/*" multiple hidden>
+  <div id="printout"></div>
   <input id="imageFile" type="file" accept="image/*" hidden>
 
   <dialog id="sigDlg">

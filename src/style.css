@@ -5,7 +5,7 @@ header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-i
 button { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
 button:hover { background: #eee; }
 button.on { background: #2563eb; color: #fff; border-color: #2563eb; }
-#size { width: 56px; }
+
 #q { width: 140px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
 #hitCount { color: #666; font-size: 12px; min-width: 4ch; }
 #status { color: #666; }
@@ -49,3 +49,13 @@ body.tool-text .layer { cursor: text; }
 .note-row b { display: block; color: #666; font-weight: normal; }
 .note-row button { float: right; padding: 0 5px; font-size: 11px; }
 #notes h3, #forms h3 { margin: 0 0 8px; font-size: 13px; }
+#size, #stroke { width: 56px; }
+
+#printout { display: none; }
+@media print {
+  @page { margin: 0; }
+  body { display: block; height: auto; }
+  body > :not(#printout) { display: none !important; }
+  #printout { display: block; }
+  #printout img { display: block; max-width: 100%; max-height: 100vh; margin: 0 auto; break-after: page; }
+}

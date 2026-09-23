@@ -1,9 +1,14 @@
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFDocument, StandardFonts, degrees, PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList, PDFRadioGroup } from 'pdf-lib'
-import { bake, viewBox, addTextLayer, FONTS } from './bake.js'
+import { bake as bakeWith, viewBox, addTextLayer, FONTS, arrowHead, ends } from './bake.js'
+import { parseRange } from './range.js'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+const BASE = import.meta.env.BASE_URL
+const pdfjsOpts = { cMapUrl: BASE + 'pdfjs/cmaps/', standardFontDataUrl: BASE + 'pdfjs/standard_fonts/' }
+const loadFont = async f => new Uint8Array(await (await fetch(BASE + 'fonts/' + f)).arrayBuffer())
+const bake = (bytes, pages) => bakeWith(bytes, pages, loadFont)
 
 const $ = id => document.getElementById(id)
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props)
@@ -39,10 +44,9 @@ async function open(bytes, fileName) {
 }
 
 async function refresh(forms = true) {
-  const base = import.meta.env.BASE_URL + 'pdfjs/'
   docBytes = await doc.save()
   // pdf.js transfers the buffer to its worker, so hand it a copy and keep docBytes for undo steps.
-  pdf = await pdfjs.getDocument({ data: docBytes.slice(), cMapUrl: base + 'cmaps/', standardFontDataUrl: base + 'standard_fonts/' }).promise
+  pdf = await pdfjs.getDocument({ data: docBytes.slice(), ...pdfjsOpts }).promise
   await loadAnnots()
   build()
   if (forms) buildForms()
@@ -172,13 +176,25 @@ async function movePage(from, to) {
   await refresh(false)
 }
 
-async function insertPdfs(files) {
+// Appends PDFs and images (one page each). With nothing open, the first file starts a new document.
+async function insertFiles(files) {
   if (doc) mark()
   for (const f of files) {
-    const other = await PDFDocument.load(await f.arrayBuffer())
-    if (!doc) { await open(await f.arrayBuffer(), f.name); continue }
-    for (const p of await doc.copyPages(other, other.getPageIndices())) {
-      doc.addPage(p)
+    if (f.type === 'application/pdf') {
+      if (!doc) { await open(await f.arrayBuffer(), f.name); continue }
+      const other = await PDFDocument.load(await f.arrayBuffer())
+      for (const p of await doc.copyPages(other, other.getPageIndices())) {
+        doc.addPage(p)
+        pages.push({ items: [] })
+      }
+    } else {
+      if (!doc) { doc = await PDFDocument.create(); pages = []; name = f.name.replace(/\.[^.]+$/, '') + '.pdf' }
+      // Through a canvas so phone photos come out upright (EXIF) and any format the browser reads works.
+      const url = URL.createObjectURL(f), jpg = f.type === 'image/jpeg'
+      const data = await toImage(url, jpg ? 'image/jpeg' : 'image/png').finally(() => URL.revokeObjectURL(url))
+      const img = await (jpg ? doc.embedJpg(data) : doc.embedPng(data))
+      const k = Math.min(0.75, 842 / Math.max(img.width, img.height)) // 96 dpi, capped to A4's long side
+      doc.addPage([img.width * k, img.height * k]).drawImage(img, { x: 0, y: 0, width: img.width * k, height: img.height * k })
       pages.push({ items: [] })
     }
   }
@@ -194,7 +210,7 @@ function download(bytes, fileName) {
 $('open').onclick = () => $('file').click()
 $('file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await open(await f.arrayBuffer(), f.name) }
 $('merge').onclick = () => $('mergeFile').click()
-$('mergeFile').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await insertPdfs(fs) }
+$('mergeFile').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await insertFiles(fs) }
 $('blank').onclick = async () => {
   if (!doc) { doc = await PDFDocument.create(); pages = [] } else mark()
   const last = doc.getPageCount() && doc.getPage(doc.getPageCount() - 1)
@@ -210,19 +226,49 @@ $('save').onclick = async () => {
 }
 $('extract').onclick = async () => {
   if (!doc) return
-  if (!picked.size) return alert('Ctrl+click page thumbnails to pick the pages to extract.')
+  const suggest = [...picked].sort((a, b) => a - b).map(i => i + 1).join(', ') || `1-${pages.length}`
+  const range = prompt(`Pages to extract, e.g. 1-3, 5, 8- (this document has ${pages.length}):`, suggest)
+  if (!range) return
+  const which = parseRange(range, pages.length)
+  if (!which.length) return
   await applyRedactions()
   const src = await PDFDocument.load(await bake(await doc.save(), pages))
   const out = await PDFDocument.create()
-  for (const p of await out.copyPages(src, [...picked].sort((a, b) => a - b))) out.addPage(p)
+  for (const p of await out.copyPages(src, which)) out.addPage(p)
   download(await out.save(), name.replace(/\.pdf$/i, '') + '-extract.pdf')
+}
+// Prints the saved result rendered as images, so it works the same in every browser and the desktop app.
+// ponytail: 150 dpi raster, and long documents take memory. For vector output, print the saved PDF from a viewer.
+$('print').onclick = async () => {
+  if (!doc) return
+  $('print').disabled = true
+  const box = $('printout'), task = pdfjs.getDocument({ data: await bake(await doc.save(), pages), ...pdfjsOpts })
+  const out = await task.promise
+  try {
+    for (let n = 1; n <= out.numPages; n++) {
+      status(`Preparing page ${n}/${out.numPages} for printing\u2026`)
+      const page = await out.getPage(n), viewport = page.getViewport({ scale: 150 / 72 })
+      const canvas = el('canvas', { width: viewport.width, height: viewport.height })
+      await page.render({ canvas, viewport }).promise
+      const img = el('img', { src: URL.createObjectURL(await new Promise(r => canvas.toBlob(r))) })
+      box.append(img)
+      await img.decode()
+    }
+    status('')
+    print()
+  } finally {
+    box.querySelectorAll('img').forEach(i => URL.revokeObjectURL(i.src))
+    box.replaceChildren()
+    task.destroy()
+    $('print').disabled = false
+  }
 }
 addEventListener('dragover', e => e.preventDefault())
 addEventListener('drop', async e => {
-  const files = [...e.dataTransfer.files].filter(f => f.type === 'application/pdf')
+  const files = [...e.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.type.startsWith('image/'))
   if (!files.length) return
   e.preventDefault()
-  await (doc ? insertPdfs(files) : open(await files[0].arrayBuffer(), files[0].name))
+  await insertFiles(files)
 })
 
 // ---------- forms ----------
@@ -311,6 +357,8 @@ function drawItem(i, it) {
   } else if (it.type === 'ink') {
     const pts = it.points.map(p => p.join(',')).join(' ')
     node.innerHTML = `<svg viewBox="0 0 ${it.ow} ${it.oh}" preserveAspectRatio="none" style="overflow:visible"><polyline points="${pts}" fill="none" stroke="${it.color}" stroke-width="${it.width * zoom}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  } else if (it.type === 'shape') {
+    node.innerHTML = shapeSvg(it)
   } else if (it.type === 'text') {
     const span = el('span', { contentEditable: 'plaintext-only', innerText: it.text })
     const f = FONTS[it.font ?? StandardFonts.Helvetica]
@@ -334,7 +382,9 @@ function drawItem(i, it) {
     const step1 = () => { if (!stepped) { stepped = true; mark() } } // an undo step only if it really moves
     if (e.target.className === 'handle') {
       const keep = it.type === 'image' ? h / w : 0 // images keep aspect ratio
-      drag(e, (dx, dy) => { step1(); it.w = Math.max(4, w + dx); it.h = keep ? it.w * keep : Math.max(4, h + dy); place(node, it) })
+      // a shape is redrawn when the drag ends, so its arrowhead isn't left stretched
+      drag(e, (dx, dy) => { step1(); it.w = Math.max(4, w + dx); it.h = keep ? it.w * keep : Math.max(4, h + dy); place(node, it) },
+        () => it.type === 'shape' && select({ i, it, node: drawItem(i, it) }))
     } else drag(e, (dx, dy) => { step1(); it.x = x + dx; it.y = y + dy; place(node, it) })
   }
   $('viewer').children[i].querySelector('.layer').append(node)
@@ -369,9 +419,17 @@ function startTool(e, i, layer) {
       Object.assign(it, { x: Math.min(x, x + dx), y: Math.min(y, y + dy), w: Math.abs(dx), h: Math.abs(dy) })
       place(it.node, it)
     }, () => it.w < 3 && it.h < 3 && remove(i, it))
+  } else if (['rect', 'ellipse', 'line', 'arrow'].includes(tool)) {
+    const it = { type: 'shape', kind: tool, x, y, w: 0, h: 0, a: [0, 0], b: [1, 1], color, width: stroke() }
+    add(it)
+    drag(e, (dx, dy) => {
+      const a = [+(dx < 0), +(dy < 0)] // the corner the drag started from
+      Object.assign(it, { x: Math.min(x, x + dx), y: Math.min(y, y + dy), w: Math.abs(dx), h: Math.abs(dy), a, b: a.map(v => 1 - v) })
+      drawItem(i, it)
+    }, () => it.w < 3 && it.h < 3 ? remove(i, it) : select({ i, it, node: it.node }))
   } else if (tool === 'draw') {
     const { w, h } = viewBox(doc.getPage(i))
-    const it = { type: 'ink', x: 0, y: 0, w, h, ow: w, oh: h, points: [[x, y]], color, width: 2 }
+    const it = { type: 'ink', x: 0, y: 0, w, h, ow: w, oh: h, points: [[x, y]], color, width: stroke() }
     add(it)
     drag(e, (dx, dy) => { it.points.push([x + dx, y + dy]); drawItem(i, it) }, () => {
       // shrink the page-sized box to the stroke's bounds
@@ -390,6 +448,22 @@ function startTool(e, i, layer) {
     }
     img.src = stamp.src
   }
+}
+
+// Outline, ellipse, line or arrow, drawn in view units relative to the item's box.
+function shapeSvg(it) {
+  const w = Math.max(it.w, 0.01), h = Math.max(it.h, 0.01)
+  const attrs = `fill="none" stroke="${it.color}" stroke-width="${it.width * zoom}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"`
+  const rel = pts => pts.map(([x, y]) => `${x - it.x},${y - it.y}`).join(' ')
+  let body
+  if (it.kind === 'rect') body = `<rect width="${w}" height="${h}" ${attrs}/>`
+  else if (it.kind === 'ellipse') body = `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" ${attrs}/>`
+  else {
+    const [a, b] = ends(it)
+    body = `<polyline points="${rel([a, b])}" ${attrs}/>`
+    if (it.kind === 'arrow') { const [p, q] = arrowHead(a, b, it.width); body += `<polyline points="${rel([p, b, q])}" ${attrs}/>` }
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="overflow:visible">${body}</svg>`
 }
 
 // ---------- edit existing text ----------
@@ -514,8 +588,10 @@ document.querySelectorAll('#tools [data-tool]').forEach(b => (b.onclick = () => 
 
 const useStamp = (src, width) => { stamp = { src, width }; setTool('stamp'); $('sigDlg').close() }
 
-// Color / size apply to new items and to the selected one.
-$('color').oninput = () => { if (sel?.it.type === 'text' || sel?.it.type === 'ink') { sel.it.color = $('color').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
+// Color / size / stroke apply to new items and to the selected one.
+const stroke = () => Math.max(0.5, +$('stroke').value || 2)
+$('color').oninput = () => { if (['text', 'ink', 'shape'].includes(sel?.it.type)) { sel.it.color = $('color').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
+$('stroke').onchange = () => { if (['ink', 'shape'].includes(sel?.it.type)) { mark(); sel.it.width = stroke(); select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
 $('size').onchange = () => { if (sel?.it.type === 'text') { sel.it.size = +$('size').value || 14; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
 $('font').onchange = () => { if (sel?.it.type === 'text') { sel.it.font = $('font').value; select({ ...sel, node: drawItem(sel.i, sel.it) }) } }
 $('font').replaceChildren(...Object.entries({ Sans: 'Helvetica', 'Sans bold': 'HelveticaBold', Serif: 'TimesRoman', 'Serif bold': 'TimesRomanBold', Mono: 'Courier', 'Mono bold': 'CourierBold' }).map(([label, k]) => el('option', { value: StandardFonts[k], textContent: label })))
@@ -654,12 +730,12 @@ function buildNotes() {
 }
 
 // ---------- images ----------
-const toPng = src => new Promise((res, rej) => {
+const toImage = (src, type = 'image/png') => new Promise((res, rej) => {
   const img = new Image()
   img.onload = () => {
     const c = el('canvas', { width: img.naturalWidth, height: img.naturalHeight })
     c.getContext('2d').drawImage(img, 0, 0)
-    res(c.toDataURL('image/png'))
+    res(c.toDataURL(type, 0.92))
   }
   img.onerror = () => rej(new Error('Could not read that image.'))
   img.src = src
@@ -670,7 +746,7 @@ $('imageFile').onchange = async e => {
   e.target.value = ''
   if (!f) return
   const url = URL.createObjectURL(f)
-  useStamp(await toPng(url), 200)
+  useStamp(await toImage(url), 200)
   URL.revokeObjectURL(url)
 }
 

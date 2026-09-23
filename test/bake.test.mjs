@@ -3,7 +3,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument, degrees } from 'pdf-lib'
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { bake, viewBox, addTextLayer, FONTS } from '../src/bake.js'
+import { readFile } from 'node:fs/promises'
+import { StandardFonts } from 'pdf-lib'
+import { bake, viewBox, addTextLayer, FONTS, arrowHead, ends } from '../src/bake.js'
+import { parseRange } from '../src/range.js'
 
 test('overlay lands at the same view position for every rotation', async () => {
   const src = await PDFDocument.create()
@@ -88,4 +91,45 @@ test('a note bakes into a real sticky-note annotation at the right spot on every
     const [x, y] = [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1])]
     assert.ok(Math.abs(x - 40) < 0.5 && Math.abs(y - 60) < 0.5, `page ${i}: note at ${x},${y}`)
   }
+})
+
+test('page ranges parse to 0-based indices and reject bad input', () => {
+  assert.deepEqual(parseRange('1-3, 5, 8-', 9), [0, 1, 2, 4, 7, 8])
+  assert.deepEqual(parseRange(' -2 ,2', 4), [0, 1, 1])
+  assert.deepEqual(parseRange('', 4), [])
+  for (const bad of ['0', '5', '3-2', 'a', '1 2', '-']) assert.throws(() => parseRange(bad, 4), bad)
+})
+
+test('text the standard fonts lack is saved with an embedded Unicode font', async () => {
+  const src = await PDFDocument.create()
+  src.addPage([400, 200])
+  const text = 'Привет, Ωmega café'
+  const load = f => readFile('node_modules/dejavu-fonts-ttf/ttf/' + f)
+  const items = [{ type: 'text', x: 20, y: 20, size: 20, color: '#000000', text, font: StandardFonts.TimesRomanBold }]
+  const page = await (await getDocument({ data: await bake(await src.save(), [{ items }], load) }).promise).getPage(1)
+  assert.equal((await page.getTextContent()).items.map(t => t.str).join(''), text)
+  // without a font loader it still saves, with '?' for what Times can't draw
+  const plain = await (await getDocument({ data: await bake(await src.save(), [{ items }]) }).promise).getPage(1)
+  assert.equal((await plain.getTextContent()).items.map(t => t.str).join(''), '??????, ?mega café')
+})
+
+test('shapes bake as strokes inside their box, arrows pointing the way they were drawn', async () => {
+  const src = await PDFDocument.create()
+  for (const r of [0, 90]) src.addPage([300, 500]).setRotation(degrees(r))
+  const items = [
+    { type: 'shape', kind: 'rect', x: 10, y: 10, w: 50, h: 30, a: [0, 0], b: [1, 1], color: '#ff0000', width: 2 },
+    { type: 'shape', kind: 'ellipse', x: 80, y: 10, w: 40, h: 40, a: [0, 0], b: [1, 1], color: '#00ff00', width: 3 },
+    { type: 'shape', kind: 'arrow', x: 20, y: 100, w: 100, h: 0, a: [1, 0], b: [0, 0], color: '#0000ff', width: 2 },
+  ]
+  const pdf = await getDocument({ data: await bake(await src.save(), [{ items }, { items }]) }).promise
+  for (const n of [1, 2]) {
+    const ops = await (await pdf.getPage(n)).getOperatorList()
+    // pdf.js folds each path into constructPath, whose first arg is the paint op
+    const paints = ops.fnArray.flatMap((f, k) => (f === OPS.constructPath ? [ops.argsArray[k][0]] : []))
+    assert.deepEqual(paints, Array(5).fill(OPS.stroke), `page ${n}: rect + ellipse + 3 arrow lines, all outlines`)
+  }
+  // right-to-left arrow: the head is at the left end, barbs trail to the right
+  const [[ax], [bx]] = ends(items[2])
+  assert.deepEqual([ax, bx], [120, 20])
+  for (const [px] of arrowHead([ax, 100], [bx, 100], 2)) assert.ok(px > bx)
 })

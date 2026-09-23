@@ -13,11 +13,13 @@ Built on [pdf.js](https://github.com/mozilla/pdf.js) (rendering) and [pdf-lib](h
 - **Find**: Ctrl+F searches the whole document, highlights every match and steps through them with Enter / Shift+Enter.
 - **Comment**: drop sticky notes anywhere. They are saved as real PDF annotations, so other readers see them, and comments already in the file are listed in the side panel.
 - **Undo/redo**: Ctrl+Z and Ctrl+Y, across overlay edits, page operations and form fills.
-- **Add content**: text (font, size, color), whiteout, highlight, freehand drawing, and images. Move and resize any of these, and press Delete to remove one.
+- **Add content**: text (font, size, color), whiteout, highlight, freehand drawing, shapes (rectangle, ellipse, line, arrow, with adjustable line width), and images. Move and resize any of these, and press Delete to remove one.
+- **Any language**: added and edited text keeps Cyrillic, Greek, accented and other non-Latin characters. Folio embeds a matching DejaVu font, but only when the text needs it.
 - **Sign**: draw or type a signature and place it anywhere. The last 5 signatures are remembered locally.
 - **Forms**: fill text fields, checkboxes, dropdowns, and radio groups
-- **Pages**: rotate, delete, drag to reorder, add blank pages, insert/merge other PDFs, and extract picked pages (Ctrl+click thumbnails) into a new PDF
-- **Save**: downloads the PDF with all edits burned in
+- **Pages**: rotate, delete, drag to reorder, add blank pages, insert/merge other PDFs, and extract a page range such as `1-3, 5, 8-` into a new PDF (Ctrl+click thumbnails to pre-fill it)
+- **Images to PDF**: drop or insert photos and scans (JPEG, PNG, WebP…) and each one becomes a page. Drop images on an empty window to start a new PDF from them.
+- **Save and print**: downloads the PDF with all edits burned in, or prints it
 
 ## Install
 
@@ -58,7 +60,8 @@ Want to help? See the [Roadmap](https://github.com/doktorigi/folio/issues?q=is%3
 - Editing text covers the old line and writes the new one on top, so the original text is still in the file (like whiteout). Edits use the closest standard font (sans, serif or mono), not the exact original font.
 - OCR recognizes English only so far.
 - Signatures are images, not certificate-based (PKI) digital signatures.
-- Added and edited text only supports Latin characters. Other characters are saved as `?`.
+- Added text can't use emoji or Chinese, Japanese or Korean characters yet. They are saved as `?`.
+- Print sends pages as 150 dpi images. For sharper output, save the PDF and print it from a PDF viewer.
 - Undo does not cover typing inside a text box (the box's own undo does). Password-protected PDFs aren't supported.
 - Rotating a page burns in the edits on that page, so they can no longer be moved or deleted.
 
